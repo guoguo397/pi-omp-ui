@@ -34,7 +34,7 @@ export function registerDone(pi, { onUpdate = () => false } = {}) {
 		if (!enabled || ctx.mode !== "tui") return;
 
 		const now = Date.now();
-		const runTime = startedAt == null ? "" : `本次 ${formatDuration(now - startedAt)} · `;
+		const runTime = startedAt == null ? "" : `本轮 ${formatDuration(now - startedAt)} · `;
 		// 顶部只保留耗时，token 和费用统一由底部状态栏显示。
 		message = `${runTime}会话累计 ${formatDuration(now - sessionStartedAt)}`;
 

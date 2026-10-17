@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { OmpEditor } from "../extensions/omp-editor.js";
 
-const summary = "本次 29s · 会话累计 3m 39s";
+const summary = "本轮 29s · 会话累计 3m 39s";
 function create(getCompletion = () => summary) {
 	return new OmpEditor(
 		{ terminal: { rows: 30 }, requestRender() {} },
@@ -66,10 +66,10 @@ test("native working and multiline scroll indicators remain available", () => {
 	});
 	assert.match(stripTerminalSequences(editor.render(120)[0]), /working/);
 	message = summary;
-	assert.match(stripTerminalSequences(editor.render(180)[0]), /本次/);
+	assert.match(stripTerminalSequences(editor.render(180)[0]), /本轮/);
 	editor.setText(Array.from({ length: 30 }, (_, index) => `line ${index}`).join("\n"));
 	const lines = editor.render(120);
 	assert.match(stripTerminalSequences(lines[0]), /↑/);
-	assert.doesNotMatch(stripTerminalSequences(lines[0]), /本次/);
+	assert.doesNotMatch(stripTerminalSequences(lines[0]), /本轮/);
 	for (const line of lines) assert.ok(visibleWidth(line) <= 120);
 });

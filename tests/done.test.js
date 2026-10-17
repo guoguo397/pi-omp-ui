@@ -48,13 +48,13 @@ test("done notifies only at final settlement with timing and theme color", (t) =
 	now = 9000;
 	session.emit("agent_settled");
 	assert.deepEqual(session.notifications, [{
-		message: "success:本次 5s · 会话累计 8s",
+		message: "success:本轮 5s · 会话累计 8s",
 		level: "info",
 	}]);
 	// 缺少本轮开始事件时不复用上一轮计时。
 	now = 10_000;
 	session.emit("agent_settled");
-	assert.doesNotMatch(session.notifications.at(-1).message, /本次/);
+	assert.doesNotMatch(session.notifications.at(-1).message, /本轮/);
 });
 
 test("done resets timings on new sessions/reload and reports aborted settlement", (t) => {
@@ -70,7 +70,7 @@ test("done resets timings on new sessions/reload and reports aborted settlement"
 	session.emit("before_agent_start");
 	now = 15_000;
 	session.emit("agent_settled", { aborted: true });
-	assert.match(session.notifications.at(-1).message, /^success:本次 3s · 会话累计 5s/);
+	assert.match(session.notifications.at(-1).message, /^success:本轮 3s · 会话累计 5s/);
 });
 
 test("done omits tokens and cost and never reads session usage", (t) => {
@@ -80,7 +80,7 @@ test("done omits tokens and cost and never reads session usage", (t) => {
 	session.emit("before_agent_start");
 	session.emit("agent_settled");
 	const { message } = session.notifications.at(-1);
-	assert.equal(message, "success:本次 0s · 会话累计 0s");
+	assert.equal(message, "success:本轮 0s · 会话累计 0s");
 	assert.doesNotMatch(message, /tokens|输入|输出|\$/);
 });
 
@@ -104,7 +104,7 @@ test("done switch persists independently of editor/tools and reloads without sta
 	assert.equal(readSettings().toolsEnabled, false);
 	reloaded.emit("agent_settled");
 	assert.match(reloaded.notifications.at(-1).message, /会话累计/);
-	assert.doesNotMatch(reloaded.notifications.at(-1).message, /本次/);
+	assert.doesNotMatch(reloaded.notifications.at(-1).message, /本轮/);
 	await reloaded.commands.get("omp-done").handler("", reloaded.ctx);
 	assert.match(reloaded.notifications.at(-1).message, /enabled/);
 	await reloaded.commands.get("omp-done").handler("invalid", reloaded.ctx);
@@ -118,14 +118,14 @@ test("done publishes raw text to the border, clears it on lifecycle changes and 
 	assert.equal(updates.at(-1), "");
 	session.emit("before_agent_start");
 	session.emit("agent_settled");
-	assert.match(updates.at(-1), /^本次 .* · 会话累计 .*s$/);
+	assert.match(updates.at(-1), /^本轮 .* · 会话累计 .*s$/);
 	assert.doesNotMatch(updates.at(-1), /tokens|输入|输出|\$/);
 	assert.doesNotMatch(updates.at(-1), /success:/, "theme colors belong to render time");
 	assert.deepEqual(session.notifications, []);
 	await session.commands.get("omp-done").handler("off", session.ctx);
 	assert.equal(updates.at(-1), "");
 	await session.commands.get("omp-done").handler("on", session.ctx);
-	assert.match(updates.at(-1), /^本次/);
+	assert.match(updates.at(-1), /^本轮/);
 	session.emit("before_agent_start");
 	assert.equal(updates.at(-1), "");
 	session.emit("agent_settled");

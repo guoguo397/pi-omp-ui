@@ -115,7 +115,7 @@ export function renderClaudeFooter(view, width, theme) {
 		const usage = view.toolUsage;
 		const tools = [...usage.counts].sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
 			.map(([name, count]) => `${COMPACT_TOOLS.has(name) ? title(name) : singleLine(name)}×${count}`);
-		lines.push(fg("dim", `Tools ${usage.incomplete ? "≥" : ""}${usage.total} · ${tools.join(" · ")}`));
+		lines.push(fg("dim", `本轮工具 ${usage.incomplete ? "≥" : ""}${usage.total} · ${tools.join(" · ")}`));
 	}
 	return lines.map((line) => columns === 0 ? "" : truncateToWidth(line, columns, "…"));
 }
@@ -134,13 +134,15 @@ function installFooterPatch(getView, getTheme) {
 		const session = this.session;
 		const stats = this.getSessionStats();
 		const { contextUsage, usageTotals } = stats;
-		// 复用原生统计缓存的失效时机，避免流式输出每帧都扫描完整会话。
-		if (!toolUsageCache.has(stats)) {
-			toolUsageCache.set(stats, collectToolUsage(session.sessionManager.getEntries?.()));
+		const view = getView();
+		// 同时检查本轮起点：新一轮即使尚未新增条目，也不能沿用上一轮统计。
+		if (!toolUsageCache.has(stats) || toolUsageCache.get(stats).start !== view.toolStart) {
+			const entries = view.toolStart === undefined ? [] : (session.sessionManager.getEntries?.() ?? []).slice(view.toolStart);
+			toolUsageCache.set(stats, { start: view.toolStart, usage: collectToolUsage(entries) });
 		}
 		const model = session.routedModel?.model ?? session.state.model;
 		return renderClaudeFooter({
-			...getView(),
+			...view,
 			modelName: model?.name || model?.id,
 			cwd: session.sessionManager.getCwd(),
 			branch: this.footerData.getGitBranch(),
@@ -150,7 +152,7 @@ function installFooterPatch(getView, getTheme) {
 			thinkingLevel: session.routedModel?.thinkingLevel ?? session.state.thinkingLevel,
 			compacting: session.isCompacting,
 			usage: usageTotals,
-			toolUsage: toolUsageCache.get(stats),
+			toolUsage: toolUsageCache.get(stats).usage,
 			statuses: this.footerData.getExtensionStatuses(),
 		}, width, getTheme());
 	};
@@ -172,6 +174,7 @@ export function registerFooterIcon(pi) {
 	let patch;
 	let startedAt = Date.now();
 	let busy = false;
+	let toolStart;
 	let activeContext;
 
 	const stop = () => {
@@ -183,7 +186,7 @@ export function registerFooterIcon(pi) {
 		if (ctx.mode !== "tui" || !enabled || patch) return;
 		activeContext = ctx;
 		patch = installFooterPatch(
-			() => ({ elapsedMs: Date.now() - startedAt, busy }),
+			() => ({ elapsedMs: Date.now() - startedAt, busy, toolStart }),
 			() => activeContext.ui.theme,
 		);
 	};
@@ -192,10 +195,14 @@ export function registerFooterIcon(pi) {
 		stop();
 		startedAt = Date.now();
 		busy = false;
+		toolStart = undefined;
 		start(ctx);
 	});
 	pi.on("before_agent_start", (_event, ctx) => {
-		if (ctx.mode === "tui") busy = true;
+		if (ctx.mode !== "tui") return;
+		busy = true;
+		// 与顶边本轮耗时使用同一开始事件；只统计此后保存的工具结果。
+		toolStart = ctx.sessionManager.getEntryCount?.() ?? ctx.sessionManager.getEntries().length;
 	});
 	// 等到重试、压缩和后续排队任务全部结束，不在中间 agent_end 显示 ready。
 	pi.on("agent_settled", (_event, ctx) => {

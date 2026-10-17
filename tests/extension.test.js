@@ -69,7 +69,7 @@ test("entry point registers all three features, persists independent switches an
 		assert.equal(first.footer, undefined, "turning off the editor leaves the footer alone");
 		await first.emit("before_agent_start");
 		await first.emit("agent_settled");
-		assert.match(first.notifications.at(-1), /本次 .*会话累计 .*s$/);
+		assert.match(first.notifications.at(-1), /本轮 .*会话累计 .*s$/);
 		assert.doesNotMatch(first.notifications.at(-1), /tokens|输入|输出|\$/);
 		await first.commands.get("omp-done").handler("off", first.ctx);
 		assert.equal(readSettings().doneEnabled, false);
@@ -111,25 +111,25 @@ test("completion is rendered in the editor border without duplicate notification
 		await session.emit("session_start");
 		await new Promise((resolve) => setTimeout(resolve, 5));
 		assert.equal(session.footer, undefined, "footer is left untouched");
-		assert.doesNotMatch(session.editor.render(200)[0], /本次/);
+		assert.doesNotMatch(session.editor.render(200)[0], /本轮/);
 		await session.emit("before_agent_start");
 		const previousRenders = session.renders;
 		await session.emit("agent_settled");
-		assert.match(session.editor.render(200)[0], /本次 .*会话累计/);
+		assert.match(session.editor.render(200)[0], /本轮 .*会话累计/);
 		assert.doesNotMatch(session.editor.render(200)[0], /tokens|输入|输出|\$/);
 		assert.deepEqual(session.notifications, [], "embedded stats must not also notify");
 		assert.ok(session.renders > previousRenders, "settlement requests a redraw");
 
 		await session.commands.get("omp-done").handler("off", session.ctx);
-		assert.doesNotMatch(session.editor.render(200)[0], /本次|会话累计/);
+		assert.doesNotMatch(session.editor.render(200)[0], /本轮|会话累计/);
 		assert.equal(session.footer, undefined, "done switch leaves the footer alone");
 		await session.commands.get("omp-done").handler("on", session.ctx);
-		assert.match(session.editor.render(200)[0], /本次 .*会话累计/);
+		assert.match(session.editor.render(200)[0], /本轮 .*会话累计/);
 		await session.emit("before_agent_start");
-		assert.doesNotMatch(session.editor.render(200)[0], /本次|tokens/);
+		assert.doesNotMatch(session.editor.render(200)[0], /本轮|tokens/);
 		await session.emit("agent_settled");
 		await session.emit("session_start");
-		assert.doesNotMatch(session.editor.render(200)[0], /本次|tokens/);
+		assert.doesNotMatch(session.editor.render(200)[0], /本轮|tokens/);
 	} finally {
 		await session.emit("session_shutdown");
 		assert.equal(session.footer, undefined);
