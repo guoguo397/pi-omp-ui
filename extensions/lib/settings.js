@@ -13,7 +13,7 @@ export function readSettings(path = SETTINGS_PATH) {
 	}
 }
 
-/** 输入框和工具 UI 共用文件；切换其中一项不能覆盖另一项或未知配置。 */
+/** 各项功能共用文件；切换其中一项不能覆盖其他功能或未知配置。 */
 export function updateSettings(partial, path = SETTINGS_PATH) {
 	const next = { ...readSettings(path), ...partial };
 	mkdirSync(dirname(path), { recursive: true });

@@ -19,6 +19,7 @@ function mock(mode) {
 	let editor;
 	const ctx = {
 		mode,
+		sessionManager: { getEntries: () => [] },
 		ui: {
 			theme: { fg: (_token, text) => text, bg: (_token, text) => text, bold: (text) => text },
 			notify: (text) => notifications.push(text),
@@ -34,7 +35,7 @@ function mock(mode) {
 	return { ctx, commands, notifications, async emit(name) { for (const handler of events.get(name) ?? []) await handler({}, ctx); } };
 }
 
-test("entry point registers both features, persists independent switches and cleans up reloads", async () => {
+test("entry point registers all three features, persists independent switches and cleans up reloads", async () => {
 	try {
 		const first = mock("tui");
 		await first.emit("session_start");
@@ -47,9 +48,15 @@ test("entry point registers both features, persists independent switches and cle
 		await first.commands.get("omp-editor").handler("off", first.ctx);
 		assert.equal(readSettings().enabled, false);
 		assert.equal(readSettings().toolsEnabled, false);
+		await first.emit("before_agent_start");
+		await first.emit("agent_settled");
+		assert.match(first.notifications.at(-1), /本次 .*会话累计 .*tokens 0/);
+		await first.commands.get("omp-done").handler("off", first.ctx);
+		assert.equal(readSettings().doneEnabled, false);
 		await first.commands.get("omp-tools").handler("on", first.ctx);
 		assert.equal(readSettings().enabled, false);
 		assert.equal(readSettings().toolsEnabled, true);
+		assert.equal(readSettings().doneEnabled, false);
 		assert.equal(first.ctx.ui.getEditorComponent(), undefined);
 		await first.emit("session_shutdown");
 		assert.equal(ToolExecutionComponent.prototype.render, originalRender);
@@ -59,6 +66,11 @@ test("entry point registers both features, persists independent switches and cle
 		await new Promise((resolve) => setTimeout(resolve, 5));
 		assert.notEqual(ToolExecutionComponent.prototype.render, originalRender);
 		assert.equal(reloaded.ctx.ui.getEditorComponent(), undefined);
+		await reloaded.commands.get("omp-done").handler("status", reloaded.ctx);
+		assert.match(reloaded.notifications.at(-1), /disabled/);
+		const count = reloaded.notifications.length;
+		await reloaded.emit("agent_settled");
+		assert.equal(reloaded.notifications.length, count);
 		await reloaded.emit("session_shutdown");
 		assert.equal(ToolExecutionComponent.prototype.render, originalRender);
 

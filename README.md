@@ -2,7 +2,7 @@
 
 自己用AI改的一个Pi TUI插件（自用，请温柔喷）
 
-一个仿 OMP 风格的 Pi 输入框与工具 UI 扩展。保留 Pi 原生编辑和工具执行行为，内置紧凑工具卡、树形分组及 Edit diff，**无需另外安装 `pi-cc-extensions`**。
+一个仿 OMP 风格的 Pi 输入框与工具 UI 扩展。保留 Pi 原生编辑和工具执行行为，内置紧凑工具卡、树形分组、Edit diff 及完成统计通知，**无需另外安装 `pi-cc-extensions`**。
 
 ## 特性
 
@@ -11,11 +11,12 @@
 - 下方仍有隐藏内容时，保留滚动提示和独立底边。
 - 保留原生快捷键、历史记录、粘贴处理、自动补全和输入法行为。
 - 修正紧凑布局下补全菜单的鼠标坐标偏移。
-- 输入框和工具 UI 可分别开关，并在启动会话及 `/reload` 后恢复已保存的状态。
+- 输入框、工具 UI 和完成统计通知可分别开关，并在启动会话及 `/reload` 后恢复已保存的状态。
 - 工具调用采用 `✓` / `✗` / 动态运行指示、参数摘要、结果行数和耗时。
 - 连续工具自动合并成 `Multiple Tools` 或同名工具树；Codemode 显示真实子调用进度。
 - 默认折叠输出，可展开查看完整输入、输出和图片。
 - Edit 使用工具返回的真实 diff：宽屏左右对照，窄屏自动切换统一 diff，显示增删统计。
+- 内置 `done.js` 的完成通知：本轮耗时、会话耗时、累计 token 和费用，仅在整轮执行结束后显示。
 
 ## 兼容性
 
@@ -35,7 +36,7 @@ pi install git:github.com/guoguo397/pi-omp-editor
 /reload
 ```
 
-> 如果之前手动安装过 `omp-editor.js`，请先把旧文件移出 `~/.pi/agent/extensions/`，避免重复加载。备份文件也不要留在该目录中并继续使用 `.js` 或 `.ts` 扩展名。
+> 如果之前手动安装过 `omp-editor.js` 或 `done.js`，请在启用本项目对应功能前，把旧文件移出 `~/.pi/agent/extensions/`（例如备份到 `~/.pi/agent/extension-backups/`），避免重复加载和重复通知。备份文件也不要留在自动加载目录中并继续使用 `.js` 或 `.ts` 扩展名。本项目不会自动移动或删除这些旧文件。
 
 安装固定版本：
 
@@ -47,7 +48,7 @@ pi install git:github.com/guoguo397/pi-omp-editor@v1.0.0
 
 ## 使用
 
-首次安装默认同时启用输入框和工具 UI。两者独立保存状态；关闭输入框不会关闭工具 UI。
+首次安装默认启用输入框、工具 UI 和完成统计通知。三者独立保存状态；关闭输入框不会关闭另外两项。
 
 | 命令 | 作用 |
 | --- | --- |
@@ -59,6 +60,10 @@ pi install git:github.com/guoguo397/pi-omp-editor@v1.0.0
 | `/omp-tools off` | 关闭工具 UI，恢复原生工具显示 |
 | `/omp-tools status` | 查看工具 UI 状态及是否让位给其他渲染插件 |
 | `/omp-tools` | 等同于 `/omp-tools status` |
+| `/omp-done on` | 启用完成统计通知并保存 |
+| `/omp-done off` | 关闭完成统计通知 |
+| `/omp-done status` | 查看完成统计通知状态 |
+| `/omp-done` | 等同于 `/omp-done status` |
 
 ### 工具 UI
 
@@ -84,6 +89,20 @@ pi install git:github.com/guoguo397/pi-omp-editor@v1.0.0
 - 内置支持 Read、Ls、Find、Grep、Bash、PowerShell、Edit、Write、Codemode、Tool Search。未知工具（含自定义 MCP 工具）保留原来的渲染器。
 - 不跨越可见的助手消息合并分组，Edit、Write 和含图片的调用独立显示。图片展开后仍由 Pi 原生图像组件渲染。
 
+### 完成统计通知
+
+从原独立 `done.js` 内置，通知示例：
+
+```text
+本次 9s · 会话累计 2m 15s · tokens 12.3k（输入 11.1k / 输出 1.2k） · $0.0123
+```
+
+- 使用 `agent_settled`：自动重试、压缩及排队的后续执行全部结束后再通知，不在中间的 `agent_end` 重复弹出。
+- 累计 token 与 Pi 内置会话统计使用相同口径：读取所有会话条目，包含其他分支、压缩、分支摘要，以及工具报告的嵌套模型用量；输入包含缓存读写 token。
+- 费用大于零时显示四位小数，否则隐藏。不会向模型上下文插入消息，也不会调用系统桌面通知。
+- 会话耗时从本次启动或最近一次 `session_start`（包括 `/reload`）开始计时，不是历史会话文件的创建时间。
+- 仅 TUI 模式显示；可通过 `/omp-done off` 独立关闭。如果保留旧独立脚本，请关闭本项目通知；此命令不会关闭旧脚本。
+
 ### 与其他 UI 插件共用
 
 如果检测到正在接管工具渲染的 `pi-cc-extensions`，本项目的工具 UI 会自动让位，避免重复分组；输入框仍独立工作。`/omp-tools status` 会说明当前状态。
@@ -101,11 +120,12 @@ pi install git:github.com/guoguo397/pi-omp-editor@v1.0.0
 ```json
 {
   "enabled": true,
-  "toolsEnabled": true
+  "toolsEnabled": true,
+  "doneEnabled": true
 }
 ```
 
-旧配置只包含 `enabled` 也可使用；缺失的 `toolsEnabled` 默认启用。
+旧配置只包含 `enabled` 也可使用；缺失的 `toolsEnabled` 和 `doneEnabled` 默认启用。
 
 ## 更新
 
@@ -141,7 +161,7 @@ pi --no-extensions -e .
 
 上述命令仅在本次启动加载此扩展，不写入安装配置；`--no-extensions` 用于避免同时加载其他扩展或已经安装的副本。它会同时禁用其他自动发现的扩展，包括内置 MCP 扩展。
 
-入口位于 `extensions/omp-editor.js`，工具 UI 位于 `extensions/tool-ui/`，共享设置位于 `extensions/lib/settings.js`。代码注释使用中文。
+入口位于 `extensions/omp-editor.js`，工具 UI 位于 `extensions/tool-ui/`，完成通知位于 `extensions/lib/done.js`，共享设置位于 `extensions/lib/settings.js`。代码注释使用中文。
 
 运行测试（需要 Node.js 22.19+ 及 Pi 的两个 peer dependencies）：
 
@@ -151,7 +171,7 @@ npm test
 npm pack --dry-run
 ```
 
-测试覆盖紧凑卡片、分组边界和鼠标坐标、运行/错误状态、Codemode 子调用、宽窄屏 diff、中文/表情/ANSI 宽度、图片、独立开关、重载清理及非 TUI 模式。
+测试覆盖紧凑卡片、分组边界和鼠标坐标、运行/错误状态、Codemode 子调用、宽窄屏 diff、中文/表情/ANSI 宽度、图片、独立开关、完成通知计时与用量口径、重载清理及非 TUI 模式。
 
 ## 注意事项
 

@@ -1,7 +1,7 @@
 {
   "name": "pi-omp-editor",
   "version": "1.0.0",
-  "description": "Pi 的 OMP 风格输入框与紧凑工具 UI，内置树形分组和并排 diff",
+  "description": "Pi 的 OMP 风格输入框与紧凑工具 UI，内置树形分组、并排 diff 和完成统计",
   "type": "module",
   "license": "MIT",
   "author": "guoguo397",
