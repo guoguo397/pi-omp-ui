@@ -1,11 +1,11 @@
-import { CustomEditor, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import {
 	sliceByColumn,
 	stripTerminalSequences,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readSettings, updateSettings } from "./lib/settings.js";
+import { registerToolUi } from "./tool-ui/extension.js";
 
 /**
  * Pi 的 OMP 风格输入框。
@@ -16,21 +16,12 @@ import { dirname, join } from "node:path";
 
 const BOTTOM_MARKER = "\x1b[0m";
 const BASE_PADDING_X = 3;
-const SETTINGS_PATH = join(getAgentDir(), "extension-settings", "omp-editor.json");
-
 function readEnabledSetting() {
-	try {
-		const settings = JSON.parse(readFileSync(SETTINGS_PATH, "utf8"));
-		return settings.enabled !== false;
-	} catch {
-		// 首次安装、配置文件缺失或无效时，默认启用。
-		return true;
-	}
+	return readSettings().enabled !== false;
 }
 
 function writeEnabledSetting(enabled) {
-	mkdirSync(dirname(SETTINGS_PATH), { recursive: true });
-	writeFileSync(SETTINGS_PATH, `${JSON.stringify({ enabled }, null, 2)}\n`, "utf8");
+	updateSettings({ enabled });
 }
 
 function fitColumns(text, width) {
@@ -139,6 +130,7 @@ export class OmpEditor extends CustomEditor {
 }
 
 export default function ompEditorExtension(pi) {
+	registerToolUi(pi);
 	let previousFactory;
 	let enabled = readEnabledSetting();
 	let deferredInstall;

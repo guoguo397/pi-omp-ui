@@ -1,7 +1,7 @@
 {
   "name": "pi-omp-editor",
   "version": "1.0.0",
-  "description": "Pi 的 OMP 风格输入框扩展，采用右侧开放的圆角边框",
+  "description": "Pi 的 OMP 风格输入框与紧凑工具 UI，内置树形分组和并排 diff",
   "type": "module",
   "license": "MIT",
   "author": "guoguo397",
@@ -28,6 +28,9 @@
     "extensions": [
       "./extensions/omp-editor.js"
     ]
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.js"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
