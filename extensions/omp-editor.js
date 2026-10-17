@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { readSettings, updateSettings } from "./lib/settings.js";
 import { registerDone } from "./lib/done.js";
+import { registerFooterIcon } from "./lib/footer-icon.js";
 import { registerToolUi } from "./tool-ui/extension.js";
 
 /**
@@ -145,6 +146,7 @@ export class OmpEditor extends CustomEditor {
 
 export default function ompEditorExtension(pi) {
 	registerToolUi(pi);
+	registerFooterIcon(pi);
 	let previousFactory;
 	let enabled = readEnabledSetting();
 	let deferredInstall;

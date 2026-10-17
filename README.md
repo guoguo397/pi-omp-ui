@@ -20,6 +20,7 @@
 - 默认折叠输出，可展开查看完整输入、输出和图片。
 - Edit 使用工具返回的真实 diff：宽屏左右对照，窄屏自动切换统一 diff，显示增删统计。
 - 内置 `done.js` 的完成统计：本轮耗时、会话耗时、累计 token 和费用，仅在整轮执行结束后更新。
+- 底部状态栏目录前加文件夹图标；不接管状态栏，Git 分支、用量、费用、模型等信息全部保持原生显示。
 
 ## 兼容性
 
@@ -67,6 +68,10 @@ pi install git:github.com/guoguo397/pi-omp-editor@v1.0.0
 | `/omp-done off` | 关闭完成统计，不影响输入框及底部状态栏 |
 | `/omp-done status` | 查看完成统计状态 |
 | `/omp-done` | 等同于 `/omp-done status` |
+| `/omp-footer on` | 启用状态栏目录图标并保存 |
+| `/omp-footer off` | 关闭目录图标，恢复原生状态栏目录行 |
+| `/omp-footer status` | 查看目录图标状态 |
+| `/omp-footer` | 等同于 `/omp-footer status` |
 
 ### 工具 UI
 
