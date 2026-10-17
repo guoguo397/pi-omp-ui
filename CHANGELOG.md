@@ -1,11 +1,12 @@
 # 更新日志
 
-记录 `pi-omp-editor` 的用户可见改动。尚未打版本标签的改动归入“未发布”。
+记录 `pi-omp-ui`（原 `pi-omp-editor`）的用户可见改动。尚未打版本标签的改动归入“未发布”。
 
 ## [未发布]
 
 ### 调整
 
+- 项目更名为 `pi-omp-ui`：本扩展定制 Pi 的终端界面（输入框、工具 UI、状态栏、完成统计），并非编辑器或 TUI 框架插件；命令、设置文件和入口文件名保持不变，已保存的开关状态不受影响。
 - 不再隐藏底部状态栏：工作目录、Git 分支、用量、费用、模型和上下文信息恢复显示，启用或关闭 OMP 输入框均不干扰页脚。
 
 ### 新增
@@ -51,5 +52,5 @@
 
 - 修正紧凑布局下自动补全菜单的鼠标坐标偏移。
 
-[未发布]: https://github.com/guoguo397/pi-omp-editor/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/guoguo397/pi-omp-editor/releases/tag/v1.0.0
+[未发布]: https://github.com/guoguo397/pi-omp-ui/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/guoguo397/pi-omp-ui/releases/tag/v1.0.0

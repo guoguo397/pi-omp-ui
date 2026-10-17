@@ -1,21 +1,22 @@
 {
-  "name": "pi-omp-editor",
+  "name": "pi-omp-ui",
   "version": "1.0.0",
-  "description": "Pi 的 OMP 风格输入框与紧凑工具 UI，内置树形分组、并排 diff 和完成统计",
+  "description": "Pi 的 OMP 风格界面扩展：圆角输入框、紧凑工具 UI、树形分组、并排 diff、完成统计与状态栏目录行",
   "type": "module",
   "license": "MIT",
   "author": "guoguo397",
   "repository": {
     "type": "git",
-    "url": "https://github.com/guoguo397/pi-omp-editor.git"
+    "url": "https://github.com/guoguo397/pi-omp-ui.git"
   },
-  "homepage": "https://github.com/guoguo397/pi-omp-editor#readme",
+  "homepage": "https://github.com/guoguo397/pi-omp-ui#readme",
   "bugs": {
-    "url": "https://github.com/guoguo397/pi-omp-editor/issues"
+    "url": "https://github.com/guoguo397/pi-omp-ui/issues"
   },
   "keywords": [
     "pi-package",
     "pi-extension",
+    "ui",
     "editor",
     "omp"
   ],

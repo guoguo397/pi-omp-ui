@@ -1,8 +1,8 @@
-# pi-omp-editor
+# pi-omp-ui
 
-自己用AI改的一个Pi TUI插件（自用，请温柔喷）
+自己用AI改的一个Pi UI扩展（自用，请温柔喷）
 
-一个仿 OMP 风格的 Pi 输入框与工具 UI 扩展。保留 Pi 原生编辑和工具执行行为，内置紧凑工具卡、树形分组、Edit diff 及输入框边框完成统计，**无需另外安装 `pi-cc-extensions`**。
+一个仿 OMP 风格的 Pi 界面扩展。保留 Pi 原生编辑和工具执行行为，内置圆角输入框、紧凑工具卡、树形分组、Edit diff、输入框边框完成统计及状态栏目录行，**无需另外安装 `pi-cc-extensions`**。
 
 版本变更记录见 [更新日志](./CHANGELOG.md)。
 
@@ -31,7 +31,7 @@
 ## 安装
 
 ```bash
-pi install git:github.com/guoguo397/pi-omp-editor
+pi install git:github.com/guoguo397/pi-omp-ui
 ```
 
 安装后启动 Pi，或在已经运行的交互式会话中执行：
@@ -45,7 +45,7 @@ pi install git:github.com/guoguo397/pi-omp-editor
 安装固定版本：
 
 ```bash
-pi install git:github.com/guoguo397/pi-omp-editor@v1.0.0
+pi install git:github.com/guoguo397/pi-omp-ui@v1.0.0
 ```
 
 固定标签的安装不会自动跟随主分支更新。
@@ -146,7 +146,7 @@ pi install git:github.com/guoguo397/pi-omp-editor@v1.0.0
 对于未固定标签的安装：
 
 ```bash
-pi update git:github.com/guoguo397/pi-omp-editor
+pi update git:github.com/guoguo397/pi-omp-ui
 ```
 
 更新后重新启动 Pi，或执行 `/reload`。
@@ -154,13 +154,13 @@ pi update git:github.com/guoguo397/pi-omp-editor
 ## 卸载
 
 ```bash
-pi remove git:github.com/guoguo397/pi-omp-editor
+pi remove git:github.com/guoguo397/pi-omp-ui
 ```
 
 如果安装时指定了版本，请使用对应的完整来源，例如：
 
 ```bash
-pi remove git:github.com/guoguo397/pi-omp-editor@v1.0.0
+pi remove git:github.com/guoguo397/pi-omp-ui@v1.0.0
 ```
 
 卸载后重新启动 Pi，或执行 `/reload`。单独保存的启用状态文件可能仍会保留，如不再需要可手动删除。
@@ -168,8 +168,8 @@ pi remove git:github.com/guoguo397/pi-omp-editor@v1.0.0
 ## 本地开发
 
 ```bash
-git clone https://github.com/guoguo397/pi-omp-editor.git
-cd pi-omp-editor
+git clone https://github.com/guoguo397/pi-omp-ui.git
+cd pi-omp-ui
 pi --no-extensions -e .
 ```
 
