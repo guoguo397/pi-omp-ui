@@ -151,7 +151,6 @@ export default function ompEditorExtension(pi) {
 	let completion = "";
 	let activeTui;
 	let activeContext;
-	let footerHidden = false;
 
 	const factory = (tui, theme, keybindings) => {
 		activeTui = tui;
@@ -178,23 +177,11 @@ export default function ompEditorExtension(pi) {
 			previousFactory = ctx.ui.getEditorComponent();
 			ctx.ui.setEditorComponent(factory);
 		}
-		if (!footerHidden) {
-			ctx.ui.setFooter(() => {
-				footerHidden = true;
-				return {
-					render: () => [],
-					invalidate() {},
-					// 被其他扩展替换时释放所有权，避免卸载时误清对方页脚。
-					dispose() { footerHidden = false; },
-				};
-			});
-		}
 	};
 
 	const uninstall = (ctx) => {
 		if (ctx.mode !== "tui") return;
 		if (isActive(ctx)) ctx.ui.setEditorComponent(previousFactory);
-		if (footerHidden) ctx.ui.setFooter(undefined);
 		activeTui = undefined;
 		activeContext = undefined;
 	};
@@ -206,7 +193,7 @@ export default function ompEditorExtension(pi) {
 		// 覆盖按持久化设置启用的自定义输入框。
 		deferredInstall = setTimeout(() => {
 			deferredInstall = undefined;
-			if (enabled && ctx.mode === "tui" && (!isActive(ctx) || !footerHidden)) install(ctx);
+			if (enabled && ctx.mode === "tui" && !isActive(ctx)) install(ctx);
 		}, 0);
 	};
 
@@ -247,7 +234,7 @@ export default function ompEditorExtension(pi) {
 			}
 			if (action === "status") {
 				// 已保存为启用状态时，修复输入框被意外替换的情况。
-				if (enabled && (!isActive(ctx) || !footerHidden)) install(ctx);
+				if (enabled && !isActive(ctx)) install(ctx);
 				ctx.ui.notify(
 					`omp-editor is ${enabled && isActive(ctx) ? "enabled" : "disabled"} (saved)`,
 					"info",

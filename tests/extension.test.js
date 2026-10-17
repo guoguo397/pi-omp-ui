@@ -59,14 +59,14 @@ test("entry point registers all three features, persists independent switches an
 		await new Promise((resolve) => setTimeout(resolve, 5));
 		assert.notEqual(ToolExecutionComponent.prototype.render, originalRender);
 		assert.ok(first.ctx.ui.getEditorComponent());
-		assert.deepEqual(first.footer.render(120), []);
+		assert.equal(first.footer, undefined, "footer is left untouched");
 		await first.commands.get("omp-tools").handler("off", first.ctx);
 		assert.equal(ToolExecutionComponent.prototype.render, originalRender);
 		assert.ok(first.ctx.ui.getEditorComponent());
 		await first.commands.get("omp-editor").handler("off", first.ctx);
 		assert.equal(readSettings().enabled, false);
 		assert.equal(readSettings().toolsEnabled, false);
-		assert.equal(first.footer, undefined, "turning off the editor restores the default footer");
+		assert.equal(first.footer, undefined, "turning off the editor leaves the footer alone");
 		await first.emit("before_agent_start");
 		await first.emit("agent_settled");
 		assert.match(first.notifications.at(-1), /本次 .*会话累计 .*tokens 0/);
@@ -104,12 +104,12 @@ test("entry point registers all three features, persists independent switches an
 	} finally { rmSync(agentDir, { recursive: true, force: true }); }
 });
 
-test("completion is rendered in the editor border without duplicate notifications or footer", async () => {
+test("completion is rendered in the editor border without duplicate notifications", async () => {
 	const session = mock("tui");
 	try {
 		await session.emit("session_start");
 		await new Promise((resolve) => setTimeout(resolve, 5));
-		assert.deepEqual(session.footer.render(200), []);
+		assert.equal(session.footer, undefined, "footer is left untouched");
 		assert.doesNotMatch(session.editor.render(200)[0], /本次/);
 		await session.emit("before_agent_start");
 		const previousRenders = session.renders;
@@ -120,7 +120,7 @@ test("completion is rendered in the editor border without duplicate notification
 
 		await session.commands.get("omp-done").handler("off", session.ctx);
 		assert.doesNotMatch(session.editor.render(200)[0], /tokens/);
-		assert.deepEqual(session.footer.render(200), [], "done switch must not reveal the footer");
+		assert.equal(session.footer, undefined, "done switch leaves the footer alone");
 		await session.commands.get("omp-done").handler("on", session.ctx);
 		assert.match(session.editor.render(200)[0], /tokens/);
 		await session.emit("before_agent_start");
@@ -135,19 +135,17 @@ test("completion is rendered in the editor border without duplicate notification
 	}
 });
 
-test("startup repairs a replaced footer and shutdown leaves externally owned footers alone", async () => {
+test("external footers are left alone on startup, toggle and shutdown", async () => {
 	const session = mock("tui");
 	try {
 		await session.emit("session_start");
-		session.ctx.ui.setFooter(() => ({ render: () => ["temporary"], invalidate() {} }));
 		await new Promise((resolve) => setTimeout(resolve, 5));
-		assert.deepEqual(session.footer.render(120), []);
+		assert.equal(session.footer, undefined);
 		session.ctx.ui.setFooter(() => ({ render: () => ["other extension"], invalidate() {} }));
 		await session.commands.get("omp-editor").handler("off", session.ctx);
 		assert.deepEqual(session.footer.render(120), ["other extension"]);
 		await session.commands.get("omp-editor").handler("on", session.ctx);
-		assert.deepEqual(session.footer.render(120), []);
-		session.ctx.ui.setFooter(() => ({ render: () => ["other extension"], invalidate() {} }));
+		assert.deepEqual(session.footer.render(120), ["other extension"]);
 		await session.emit("session_shutdown");
 		assert.deepEqual(session.footer.render(120), ["other extension"]);
 	} finally {
