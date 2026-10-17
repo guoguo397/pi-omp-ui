@@ -91,7 +91,7 @@ npm pack --dry-run
 
 `--no-extensions` 仅在本次启动禁用其他自动发现的扩展，包括内置 MCP 扩展。
 
-入口：`extensions/omp-editor.js`；工具 UI：`extensions/tool-ui/`；完成统计与状态栏：`extensions/lib/`。
+入口与命令注册：`extensions/omp-editor.js`；输入框组件：`extensions/lib/editor.js`；工具 UI：`extensions/tool-ui/`；设置、完成统计与状态栏：`extensions/lib/`。
 
 本项目适配了 Pi 内部 UI 接口，升级 Pi 后可能需要调整。多个扩展替换同一输入框时可能互相覆盖。本项目不是 OMP 官方插件。
 

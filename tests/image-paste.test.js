@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { OmpEditor } from "../extensions/omp-editor.js";
+import { OmpEditor } from "../extensions/lib/editor.js";
 
 const directory = mkdtempSync(join(tmpdir(), "omp-image-"));
 const first = join(directory, "first.png");

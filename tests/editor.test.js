@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { OmpEditor } from "../extensions/omp-editor.js";
+import { OmpEditor } from "../extensions/lib/editor.js";
 
 const summary = "本轮 29s · 会话累计 3m 39s";
 function create(getCompletion = () => summary) {

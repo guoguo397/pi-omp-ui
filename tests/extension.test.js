@@ -7,7 +7,7 @@ import { test } from "node:test";
 // 在加载 Pi 配置模块前隔离 agent 目录，测试绝不修改用户的真实配置。
 const agentDir = mkdtempSync(join(tmpdir(), "omp-extension-"));
 process.env.PI_CODING_AGENT_DIR = agentDir;
-const { default: extension } = await import("../extensions/omp-editor.js");
+const { default: extension, OmpEditor } = await import("../extensions/omp-editor.js");
 const { readSettings } = await import("../extensions/lib/settings.js");
 const { ToolExecutionComponent } = await import("@earendil-works/pi-coding-agent");
 const originalRender = ToolExecutionComponent.prototype.render;
@@ -52,13 +52,20 @@ function mock(mode) {
 	};
 }
 
-test("entry point registers all three features, persists independent switches and cleans up reloads", async () => {
+test("entry point re-exports the standalone editor component", async () => {
+	const { OmpEditor: component } = await import("../extensions/lib/editor.js");
+	assert.equal(OmpEditor, component);
+});
+
+test("entry point registers all four features, persists independent switches and cleans up reloads", async () => {
 	try {
 		const first = mock("tui");
+		assert.deepEqual([...first.commands.keys()].sort(), ["omp-done", "omp-editor", "omp-footer", "omp-tools"]);
 		await first.emit("session_start");
 		await new Promise((resolve) => setTimeout(resolve, 5));
 		assert.notEqual(ToolExecutionComponent.prototype.render, originalRender);
 		assert.ok(first.ctx.ui.getEditorComponent());
+		assert.ok(first.editor instanceof OmpEditor);
 		assert.equal(first.footer, undefined, "footer is left untouched");
 		await first.commands.get("omp-tools").handler("off", first.ctx);
 		assert.equal(ToolExecutionComponent.prototype.render, originalRender);
