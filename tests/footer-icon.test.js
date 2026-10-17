@@ -116,7 +116,7 @@ test("tool summary appends one compact row, sorted by frequency and clipped safe
 	const toolUsage = { total: 12, counts: new Map([["read", 5], ["edit", 3], ["powershell", 4]]) };
 	const lines = renderClaudeFooter({ ...view, toolUsage }, 120, plainTheme);
 	assert.equal(lines.length, 5);
-	assert.equal(lines[4], "tools 12 · Read×5 · PowerShell×4 · Edit×3");
+	assert.equal(lines[4], "Tools 12 · Read×5 · PowerShell×4 · Edit×3");
 	assert.deepEqual(lines.slice(0, 4), renderClaudeFooter(view, 120, plainTheme));
 	assert.equal(renderClaudeFooter({ ...view, toolUsage: collectToolUsage() }, 120, plainTheme).length, 4);
 	const theme = { fg: (_token, text) => `\x1b[32m${text}\x1b[0m` };
@@ -134,7 +134,7 @@ test("incomplete native nested records are shown as a lower bound", () => {
 		role: "toolResult", toolName: "codemode", nestedCalls: { calls: [{ name: "read" }], complete: false },
 	} }]);
 	assert.equal(toolUsage.incomplete, true);
-	assert.match(renderClaudeFooter({ ...view, toolUsage }, 120, plainTheme)[4], /^tools ≥2/);
+	assert.match(renderClaudeFooter({ ...view, toolUsage }, 120, plainTheme)[4], /^Tools ≥2/);
 });
 
 test("MCP count deduplicates namespaces and excludes hidden tools", () => {
@@ -235,7 +235,7 @@ test("tool summary resets each run, retains settled results and avoids per-frame
 		entries.push({ type: "message", message: { role: "toolResult", toolName: "codemode", nestedCalls: {
 			calls: [{ name: "edit" }, { name: "read" }], complete: true,
 		} } });
-		assert.equal(footer.render(120)[4], "tools 3 · Codemode×1 · Edit×1 · Read×1");
+		assert.equal(footer.render(120)[4], "Tools 3 · Codemode×1 · Edit×1 · Read×1");
 		const previous = scans;
 		footer.render(100);
 		footer.render(120);
@@ -244,20 +244,20 @@ test("tool summary resets each run, retains settled results and avoids per-frame
 		await session.emit("before_agent_start");
 		assert.equal(footer.render(120).length, 4, "new run resets even before entries change");
 		entries.push({ type: "message", message: { role: "toolResult", toolName: "read", isError: true } });
-		assert.equal(footer.render(120)[4], "tools 1 · Read×1");
+		assert.equal(footer.render(120)[4], "Tools 1 · Read×1");
 		await session.emit("agent_end");
 		entries.push({ type: "message", message: { role: "toolResult", toolName: "write" } });
-		assert.equal(footer.render(120)[4], "tools 2 · Read×1 · Write×1", "continuation before settlement stays in this run");
+		assert.equal(footer.render(120)[4], "Tools 2 · Read×1 · Write×1", "continuation before settlement stays in this run");
 		await session.emit("agent_settled");
-		assert.match(footer.render(120)[4], /^tools 2/);
+		assert.match(footer.render(120)[4], /^Tools 2/);
 		await session.commands.get("omp-footer").handler("off", session.ctx);
 		await session.commands.get("omp-footer").handler("on", session.ctx);
-		assert.match(footer.render(120)[4], /^tools 2/, "footer toggle does not reset the run");
+		assert.match(footer.render(120)[4], /^Tools 2/, "footer toggle does not reset the run");
 
 		await session.emit("before_agent_start");
 		assert.equal(footer.render(120).length, 4);
 		entries.push({ type: "compaction" }, { type: "message", message: { role: "toolResult", toolName: "edit" } });
-		assert.equal(footer.render(120)[4], "tools 1 · Edit×1");
+		assert.equal(footer.render(120)[4], "Tools 1 · Edit×1");
 		await session.emit("session_start");
 		assert.equal(footer.render(120).length, 4, "reload clears current-run stats");
 		entries = [];
