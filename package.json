@@ -1,7 +1,7 @@
 {
   "name": "pi-omp-ui",
   "version": "1.0.0",
-  "description": "Pi 的 OMP 风格界面扩展：圆角输入框、紧凑工具 UI、树形分组、并排 diff、完成统计与状态栏目录行",
+  "description": "Pi 的 OMP 风格界面扩展：圆角输入框、紧凑工具 UI、树形分组、并排 diff、完成统计与 Claude Code 风格状态栏",
   "type": "module",
   "license": "MIT",
   "author": "guoguo397",
