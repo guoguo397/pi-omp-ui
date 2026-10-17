@@ -1,6 +1,7 @@
 import { FooterComponent } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
 import { readSettings, updateSettings } from "./settings.js";
+import { COMPACT_TOOLS, title } from "../tool-ui/format.js";
 
 /**
  * Claude Code 风格状态栏。沿用旧模块名和配置键，兼容已保存的开关。
@@ -46,7 +47,28 @@ export function countMcpServers(tools = []) {
 	return servers.size;
 }
 
-/** 纯渲染函数：按列宽裁剪四行，主题颜色在每次 render 时重新计算。 */
+/** 按已保存的工具结果累计调用，避免把 assistant 的请求和结果重复计算。 */
+export function collectToolUsage(entries = []) {
+	const counts = new Map();
+	let total = 0;
+	let incomplete = false;
+	const add = (name) => {
+		if (typeof name !== "string" || !name) return;
+		counts.set(name, (counts.get(name) ?? 0) + 1);
+		total++;
+	};
+	for (const entry of entries) {
+		if (entry.type !== "message" || entry.message?.role !== "toolResult") continue;
+		const message = entry.message;
+		add(message.toolName);
+		// 原生记录包含各层嵌套调用；不再叠加 details.calls，以免重复或混入模型调用。
+		for (const call of message.nestedCalls?.calls ?? []) add(call.name);
+		if (message.nestedCalls?.complete === false) incomplete = true;
+	}
+	return { total, counts, incomplete };
+}
+
+/** 纯渲染函数：主题颜色在每次 render 时重新计算，有调用记录时追加工具汇总行。 */
 export function renderClaudeFooter(view, width, theme) {
 	const columns = Math.max(0, Math.floor(width));
 	const fg = (token, text) => theme.fg(token, text);
@@ -74,8 +96,9 @@ export function renderClaudeFooter(view, width, theme) {
 	const files = [...counts].map(([name, count]) => `${count} ${name}`).join(" · ") || "0 context files";
 	const resources = fg("dim", files) + separator + fg("dim", `${view.mcpCount ?? 0} MCPs`);
 
-	const state = view.compacting ? "compacting" : view.busy ? "working" : "ready";
-	const status = [fg(view.busy || view.compacting ? "warning" : "success", `▶ ${state}`)];
+	// 运行进度由输入框显示，底部不再重复 working；空闲及压缩状态仍保留。
+	const state = view.compacting ? "compacting" : view.busy ? "" : "ready";
+	const status = state ? [fg(view.compacting ? "warning" : "success", `▶ ${state}`)] : [];
 	if (view.thinkingLevel) status.push(fg("muted", `thinking ${singleLine(view.thinkingLevel)}`));
 	if (view.usage) {
 		const usage = view.usage;
@@ -87,8 +110,14 @@ export function renderClaudeFooter(view, width, theme) {
 		// 插件状态允许保留颜色，但不允许换行。
 		status.push(String(value).replace(/[\r\n\t]/g, " "));
 	}
-	return [header, context, resources, status.join(fg("dim", " · "))]
-		.map((line) => columns === 0 ? "" : truncateToWidth(line, columns, "…"));
+	const lines = [header, context, resources, status.join(fg("dim", " · "))];
+	if (view.toolUsage?.total > 0) {
+		const usage = view.toolUsage;
+		const tools = [...usage.counts].sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
+			.map(([name, count]) => `${COMPACT_TOOLS.has(name) ? title(name) : singleLine(name)}×${count}`);
+		lines.push(fg("dim", `Tools ${usage.incomplete ? "≥" : ""}${usage.total} · ${tools.join(" · ")}`));
+	}
+	return lines.map((line) => columns === 0 ? "" : truncateToWidth(line, columns, "…"));
 }
 
 function installFooterPatch(getView, getTheme) {
@@ -96,13 +125,19 @@ function installFooterPatch(getView, getTheme) {
 	const prototype = FooterComponent.prototype;
 	const originalRender = prototype.render;
 	const state = { active: true };
+	const toolUsageCache = new WeakMap();
 	const render = function (width) {
 		// 内部接口变化时安全回退，避免状态栏阻断整个 TUI 渲染。
 		if (!state.active || !this.session || !this.footerData || typeof this.getSessionStats !== "function") {
 			return originalRender.call(this, width);
 		}
 		const session = this.session;
-		const { contextUsage, usageTotals } = this.getSessionStats();
+		const stats = this.getSessionStats();
+		const { contextUsage, usageTotals } = stats;
+		// 复用原生统计缓存的失效时机，避免流式输出每帧都扫描完整会话。
+		if (!toolUsageCache.has(stats)) {
+			toolUsageCache.set(stats, collectToolUsage(session.sessionManager.getEntries?.()));
+		}
 		const model = session.routedModel?.model ?? session.state.model;
 		return renderClaudeFooter({
 			...getView(),
@@ -115,6 +150,7 @@ function installFooterPatch(getView, getTheme) {
 			thinkingLevel: session.routedModel?.thinkingLevel ?? session.state.thinkingLevel,
 			compacting: session.isCompacting,
 			usage: usageTotals,
+			toolUsage: toolUsageCache.get(stats),
 			statuses: this.footerData.getExtensionStatuses(),
 		}, width, getTheme());
 	};

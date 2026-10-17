@@ -7,7 +7,7 @@ import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
 const directory = mkdtempSync(join(tmpdir(), "omp-footer-icon-"));
 process.env.PI_CODING_AGENT_DIR = directory;
-const { registerFooterIcon, renderClaudeFooter, countMcpServers } = await import("../extensions/lib/footer-icon.js");
+const { registerFooterIcon, renderClaudeFooter, countMcpServers, collectToolUsage } = await import("../extensions/lib/footer-icon.js");
 const { readSettings, SETTINGS_PATH } = await import("../extensions/lib/settings.js");
 const { FooterComponent } = await import("@earendil-works/pi-coding-agent");
 const originalRender = FooterComponent.prototype.render;
@@ -54,7 +54,8 @@ test("Claude footer matches the four-line layout with real usage and extension s
 	]);
 	const working = renderClaudeFooter({ ...view, busy: true, elapsedMs: 3_660_000 }, 120, plainTheme);
 	assert.match(working[0], /1h 1m/);
-	assert.match(working[3], /▶ working/);
+	assert.doesNotMatch(working[3], /working|▶ ready/);
+	assert.match(working[3], /^thinking high · ↑3\.5k/);
 	assert.match(renderClaudeFooter({ ...view, compacting: true }, 120, plainTheme)[3], /▶ compacting/);
 });
 
@@ -92,6 +93,50 @@ test("missing model, resources and git do not invent Claude-specific information
 	assert.match(renderClaudeFooter({ ...view, contextFiles: [{ path: "/a/CLAUDE.md" }] }, 120, plainTheme)[2], /1 CLAUDE.md/);
 });
 
+test("tool usage counts saved results once, including failed, custom and nested calls", () => {
+	const entries = [
+		{ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "read" }] } },
+		{ type: "message", message: { role: "toolResult", toolName: "read" } },
+		{ type: "message", message: { role: "toolResult", toolName: "read", isError: true } },
+		{ type: "message", message: { role: "toolResult", toolName: "codemode", nestedCalls: {
+			calls: [{ name: "edit" }, { name: "read" }, { name: "mcp__wordcraft__open" }], complete: true,
+		}, details: { calls: [{ name: "edit" }, { name: "read" }, { name: "models.classifier" }] } } },
+		{ type: "compaction" }, { type: "branch_summary" }, { type: "custom" },
+		{ type: "message", message: { role: "user", toolName: "ignored" } },
+		{ type: "message", message: { role: "toolResult" } },
+	];
+	const usage = collectToolUsage(entries);
+	assert.equal(usage.total, 6);
+	assert.deepEqual([...usage.counts], [["read", 3], ["codemode", 1], ["edit", 1], ["mcp__wordcraft__open", 1]]);
+	assert.equal(usage.incomplete, false);
+	assert.deepEqual(collectToolUsage(), { total: 0, counts: new Map(), incomplete: false });
+});
+
+test("tool summary appends one compact row, sorted by frequency and clipped safely", () => {
+	const toolUsage = { total: 12, counts: new Map([["read", 5], ["edit", 3], ["powershell", 4]]) };
+	const lines = renderClaudeFooter({ ...view, toolUsage }, 120, plainTheme);
+	assert.equal(lines.length, 5);
+	assert.equal(lines[4], "Tools 12 · Read×5 · PowerShell×4 · Edit×3");
+	assert.deepEqual(lines.slice(0, 4), renderClaudeFooter(view, 120, plainTheme));
+	assert.equal(renderClaudeFooter({ ...view, toolUsage: collectToolUsage() }, 120, plainTheme).length, 4);
+	const theme = { fg: (_token, text) => `\x1b[32m${text}\x1b[0m` };
+	const custom = { total: 1, counts: new Map([["自定义😀\n\x1b[31m工具", 1]]) };
+	for (let width = 0; width <= 120; width++) {
+		for (const line of renderClaudeFooter({ ...view, toolUsage: custom }, width, theme)) {
+			assert.ok(visibleWidth(line) <= width);
+			assert.doesNotMatch(stripTerminalSequences(line), /[\r\n]/);
+		}
+	}
+});
+
+test("incomplete native nested records are shown as a lower bound", () => {
+	const toolUsage = collectToolUsage([{ type: "message", message: {
+		role: "toolResult", toolName: "codemode", nestedCalls: { calls: [{ name: "read" }], complete: false },
+	} }]);
+	assert.equal(toolUsage.incomplete, true);
+	assert.match(renderClaudeFooter({ ...view, toolUsage }, 120, plainTheme)[4], /^Tools ≥2/);
+});
+
 test("MCP count deduplicates namespaces and excludes hidden tools", () => {
 	assert.equal(countMcpServers([
 		{ name: "mcp__wordcraft__read" }, { name: "mcp__wordcraft__write" },
@@ -124,7 +169,8 @@ test("patched native footer reads live data, theme, busy state and resets on rel
 		assert.equal(lines[2], "1 AGENTS.md | 1 MCPs");
 		assert.match(lines[3], /ready.*plugin status/);
 		await session.emit("before_agent_start");
-		assert.match(footer.render(120)[3], /working/);
+		assert.doesNotMatch(footer.render(120)[3], /working|ready/);
+		assert.match(footer.render(120)[3], /^thinking low/);
 		await session.emit("agent_settled");
 		assert.match(footer.render(120)[3], /ready/);
 		agent.state.model.name = "Changed model";
@@ -161,6 +207,44 @@ test("real native stats aggregate cached input, output and cost without replacin
 		assert.match(lines[1], /10%/);
 		assert.match(lines[3], /↑800 ↓200 · \$0\.0200/);
 		assert.equal(lines.join("\n").includes("NaN"), false);
+	} finally { await session.emit("session_shutdown"); }
+});
+
+test("tool summary restores across reload, invalidates on saved entries and avoids per-frame scans", async () => {
+	const session = create();
+	let entries = [{ type: "message", message: { role: "toolResult", toolName: "read" } }];
+	let sessionId = "first";
+	let scans = 0;
+	const agent = {
+		state: { model: { id: "test" } },
+		sessionManager: {
+			getCwd: () => "/repo", getEntryCount: () => entries.length,
+			getSessionId: () => sessionId, getLeafId: () => entries.length,
+			getEntries: () => { scans++; return entries; },
+		},
+		getContextUsage: () => ({ percent: 10 }),
+	};
+	const footer = new FooterComponent(agent, {
+		getGitBranch: () => null, getExtensionStatuses: () => new Map(),
+	});
+	try {
+		await session.emit("session_start");
+		assert.equal(footer.render(120)[4], "Tools 1 · Read×1");
+		const previous = scans;
+		footer.render(100);
+		footer.render(120);
+		assert.equal(scans, previous, "unchanged session must reuse cached counts");
+		entries.push({ type: "message", message: { role: "toolResult", toolName: "edit", isError: true } });
+		assert.equal(footer.render(120)[4], "Tools 2 · Edit×1 · Read×1");
+		await session.emit("session_start");
+		assert.equal(footer.render(120)[4], "Tools 2 · Edit×1 · Read×1", "reload restores saved history");
+		await session.commands.get("omp-footer").handler("off", session.ctx);
+		await session.commands.get("omp-footer").handler("on", session.ctx);
+		assert.match(footer.render(120)[4], /^Tools 2/);
+		entries = [];
+		sessionId = "second";
+		await session.emit("session_start");
+		assert.equal(footer.render(120).length, 4, "new session must not inherit old counts");
 	} finally { await session.emit("session_shutdown"); }
 });
 
