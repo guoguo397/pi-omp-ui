@@ -115,7 +115,7 @@ export function renderClaudeFooter(view, width, theme) {
 		const usage = view.toolUsage;
 		const tools = [...usage.counts].sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
 			.map(([name, count]) => `${COMPACT_TOOLS.has(name) ? title(name) : singleLine(name)}×${count}`);
-		lines.push(fg("dim", `本轮工具 ${usage.incomplete ? "≥" : ""}${usage.total} · ${tools.join(" · ")}`));
+		lines.push(fg("dim", `tools ${usage.incomplete ? "≥" : ""}${usage.total} · ${tools.join(" · ")}`));
 	}
 	return lines.map((line) => columns === 0 ? "" : truncateToWidth(line, columns, "…"));
 }

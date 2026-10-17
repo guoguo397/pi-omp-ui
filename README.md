@@ -57,7 +57,7 @@ pi update git:github.com/guoguo397/pi-omp-ui
 Context ████░░░░░░░░░░░░ 25%
 2 AGENTS.md | 2 MCPs
 ▶ ready · thinking high · ↑3.5k ↓200 · $0.0123
-本轮工具 12 · Read×5 · PowerShell×4 · Edit×3
+tools 12 · Read×5 · PowerShell×4 · Edit×3
 ```
 
 - 顶边耗时在重试、压缩及排队执行全部结束后更新；新一轮开始时清除。
