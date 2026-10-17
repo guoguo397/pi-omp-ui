@@ -1,178 +1,71 @@
 # pi-omp-ui
 
-自己用AI改的一个Pi UI扩展（自用，请温柔喷）
+自己用 AI 改的 Pi UI 扩展（自用，请温柔喷）。仿 OMP 输入框和 Claude Code 状态栏，保留 Pi 原生编辑与工具执行行为，无需安装 `pi-cc-extensions`。
 
-一个仿 OMP 风格的 Pi 界面扩展。保留 Pi 原生编辑和工具执行行为，内置圆角输入框、紧凑工具卡、树形分组、Edit diff、输入框边框完成统计及 Claude Code 风格状态栏，**无需另外安装 `pi-cc-extensions`**。
+## 功能
 
-版本变更记录见 [更新日志](./CHANGELOG.md)。
+- **输入框**：圆角左边框、开放右侧、紧凑留白，保留快捷键、补全、历史记录和输入法行为。
+- **工具 UI**：紧凑卡片、连续调用分组、运行状态和耗时；可展开完整输入、输出及图片。Codemode 显示子调用进度，Edit 支持宽屏并排 diff、窄屏统一 diff。
+- **完成统计**：整轮执行结束后，在输入框顶边居中显示“本次耗时 · 会话累计耗时”，不显示 token 和费用。
+- **状态栏**：四行展示模型、项目、Git、耗时、Context 进度条、上下文文件 / MCP 数，以及运行状态、思考等级、用量和插件状态。
 
-## 特性
+仅修改交互式终端界面，不改变 RPC、JSON、打印模式或工具执行逻辑。已在 **Pi 1.3.0** 验证，其他版本尚未验证。
 
-- 圆角左边框，保留顶部和底部边框，右侧开放、不封口。
-- 默认两列内部留白，底边与最后一行合并，布局更加紧凑。
-- 完成统计居中嵌入输入框顶部横线，不占用额外行数。
-- 下方仍有隐藏内容时，保留滚动提示和独立底边。
-- 保留原生快捷键、历史记录、粘贴处理、自动补全和输入法行为。
-- 修正紧凑布局下补全菜单的鼠标坐标偏移。
-- 输入框、工具 UI 和完成统计可分别开关，并在启动会话及 `/reload` 后恢复已保存的状态。
-- 工具调用采用 `✓` / `✗` / 动态运行指示、参数摘要、结果行数和耗时。
-- 连续工具自动合并成 `Multiple Tools` 或同名工具树；Codemode 显示真实子调用进度。
-- 默认折叠输出，可展开查看完整输入、输出和图片。
-- Edit 使用工具返回的真实 diff：宽屏左右对照，窄屏自动切换统一 diff，显示增删统计。
-- 内置 `done.js` 的完成统计：本轮耗时、会话耗时、累计 token 和费用，仅在整轮执行结束后更新。
-- 底部采用 Claude Code 风格四行状态栏：模型 / 项目 / Git / 耗时、Context 进度条、上下文文件 / MCP 数、运行状态 / 思考等级 / 用量 / 插件状态。
-
-## 兼容性
-
-本扩展面向提供 `@earendil-works/pi-coding-agent` 和 `@earendil-works/pi-tui` 的 Pi 版本开发，开发环境为 Pi **1.3.0**。其他版本尚未验证。
-
-仅在交互式终端模式下修改输入框和工具显示，不改变 RPC、JSON 或打印模式的行为，不重新注册或替换工具执行逻辑。
-
-## 安装
+## 安装与更新
 
 ```bash
 pi install git:github.com/guoguo397/pi-omp-ui
 ```
 
-安装后启动 Pi，或在已经运行的交互式会话中执行：
-
-```text
-/reload
-```
-
-> 如果之前手动安装过 `omp-editor.js` 或 `done.js`，请在启用本项目对应功能前，把旧文件移出 `~/.pi/agent/extensions/`（例如备份到 `~/.pi/agent/extension-backups/`），避免重复加载和重复通知。备份文件也不要留在自动加载目录中并继续使用 `.js` 或 `.ts` 扩展名。本项目不会自动移动或删除这些旧文件。
-
-安装固定版本：
-
-```bash
-pi install git:github.com/guoguo397/pi-omp-ui@v1.0.0
-```
-
-固定标签的安装不会自动跟随主分支更新。
-
-## 使用
-
-首次安装默认启用输入框、工具 UI、完成统计和状态栏。四项独立保存状态；关闭输入框不会关闭其他功能。
-
-| 命令 | 作用 |
-| --- | --- |
-| `/omp-editor on` | 启用并保存状态 |
-| `/omp-editor off` | 关闭并恢复之前的输入框 |
-| `/omp-editor status` | 查看状态；若保存为启用但输入框被替换，则尝试恢复 |
-| `/omp-editor` | 等同于 `/omp-editor status` |
-| `/omp-tools on` | 启用紧凑工具 UI 并保存 |
-| `/omp-tools off` | 关闭工具 UI，恢复原生工具显示 |
-| `/omp-tools status` | 查看工具 UI 状态及是否让位给其他渲染插件 |
-| `/omp-tools` | 等同于 `/omp-tools status` |
-| `/omp-done on` | 启用完成统计并保存 |
-| `/omp-done off` | 关闭完成统计，不影响输入框及底部状态栏 |
-| `/omp-done status` | 查看完成统计状态 |
-| `/omp-done` | 等同于 `/omp-done status` |
-| `/omp-footer on` | 启用 Claude Code 风格状态栏并保存 |
-| `/omp-footer off` | 关闭自定义样式，恢复原生状态栏 |
-| `/omp-footer status` | 查看状态栏开关 |
-| `/omp-footer` | 等同于 `/omp-footer status` |
-
-### 工具 UI
-
-```text
- ● Multiple Tools: 3 done · Read×1, Ls×1, Grep×1 · click to show more
- ├ ✓ Read src/main.js
- ├ ✓ Ls src
- └ ✓ Grep "render" in src
-
- ✓ PowerShell npm test
-   ↳ 12 lines returned · 451ms · click to show more
-
- ✓ Edit src/main.js
-   ↳ diff +3 −1 split [━━━━━━━━━━━━━━━━]
- old                       │ new
-```
-
-- **Fullscreen 模式**：点击单个工具卡展开/折叠；点击分组标题展开/折叠组内工具。
-- **Regular 模式**：终端管理鼠标和滚动，使用 Pi 原生的工具展开快捷键（默认 **Ctrl+O**）。提示文字跟随当前快捷键设置。
-- 原生展开快捷键在两种模式下都有效，不需要逐个点击。
-- 工具组和 Codemode 折叠时最多显示最近 8 项，显示隐藏数量；展开可查看全部。
-- Edit 默认预览最多 20 行，展开查看完整 diff；内容区至少 100 列时并排显示，否则使用统一 diff。
-- 内置支持 Read、Ls、Find、Grep、Bash、PowerShell、Edit、Write、Codemode、Tool Search。未知工具（含自定义 MCP 工具）保留原来的渲染器。
-- 不跨越可见的助手消息合并分组，Edit、Write 和含图片的调用独立显示。图片展开后仍由 Pi 原生图像组件渲染。
-
-### 输入框横线中的完成统计
-
-从原独立 `done.js` 内置，整轮执行结束后将统计居中嵌入输入框顶部横线，不再额外弹出通知。例如：
-
-```text
-╭──── 本次 9s · 会话累计 2m 15s · tokens 12.3k（输入 11.1k / 输出 1.2k） · $0.0123 ────
-╰─
-```
-
-- 使用 `agent_settled`：自动重试、压缩及排队的后续执行全部结束后再更新，不在中间的 `agent_end` 重复显示。
-- 完成统计与底部状态栏独立开关；底部状态栏默认使用下方介绍的 Claude Code 风格。
-- 窄窗口按终端列宽截断统计，支持中文、表情及主题颜色；不会增加输入框高度。
-- 新一轮开始时清除上轮统计，保留原生运行进度；多行编辑时优先保留顶部滚动提示。
-- 累计 token 与 Pi 内置会话统计使用相同口径：读取所有会话条目，包含其他分支、压缩、分支摘要，以及工具报告的嵌套模型用量；输入包含缓存读写 token。
-- 费用大于零时显示四位小数，否则隐藏。不会向模型上下文插入消息，也不会调用系统桌面通知。
-- 会话耗时从本次启动或最近一次 `session_start`（包括 `/reload`）开始计时，不是历史会话文件的创建时间。
-- 仅 TUI 模式显示；可通过 `/omp-done off` 独立关闭，输入框及底部状态栏不受影响。
-- `/omp-editor off` 恢复之前的输入框；完成统计仍启用时回退到原来的独立通知。
-- 如果保留旧独立脚本，请关闭本项目完成统计；此命令不会关闭旧脚本。
-
-### Claude Code 风格状态栏
-
-默认布局示例（颜色随当前主题变化）：
-
-```text
-[Opus 5.5] | act git:(master) | ⏱ <1m
-Context ████░░░░░░░░░░░░ 25%
-2 AGENTS.md | 2 MCPs
-▶ ready · thinking high · ↑3.5k ↓200 · $0.0123 · ← 2 agents
-```
-
-- 模型、项目目录名和 Git 分支取自当前 Pi 会话；虚拟模型有路由结果时显示实际模型。
-- 耗时从本次启动或最近一次 `session_start`（包括 `/reload`）计时，随界面重绘更新。
-- Context 使用 Pi 的上下文占用百分比，低占用为绿色，超过 70% 为警告色，超过 90% 为错误色；压缩后用量未知时显示 `?%`，不冒充 0%。
-- 文件数取自 Pi 实际加载的上下文文件，按真实文件名分组；不会固定写成 `CLAUDE.md`。MCP 数为提供可访问工具的 MCP 命名空间数，不等于配置文件中的服务器总数。
-- 最后一行显示真实的 `ready` / `working` / `compacting`、思考等级及累计用量；输入用量包含缓存读写，费用为零时隐藏。
-- 保留其他扩展通过 `setStatus` 提供的状态文字；示例中的 `← 2 agents` 仅在相应扩展提供时出现，不虚构代理数。
-- 不模拟 Claude Code 的权限模式或 `Shift+Tab` 切换提示，不修改 Pi 快捷键或工具权限。
-- 窄窗口按终端列宽裁剪，支持中文、表情及 ANSI 颜色；始终保持四行。
-- `/omp-footer off` 恢复 Pi 原生状态栏。沿用旧设置键 `footerIconEnabled`，之前关闭目录图标的用户升级后仍保持关闭。
-- 只包装内置 footer；其他扩展通过 `setFooter` 替换状态栏时自动让位，关闭或卸载本功能不会清除对方的状态栏。
-
-### 与其他 UI 插件共用
-
-如果检测到正在接管工具渲染的 `pi-cc-extensions`，本项目的工具 UI 会自动让位，避免重复分组；输入框仍独立工作。`/omp-tools status` 会说明当前状态。
-
-要只使用本项目提供的工具 UI，请在 Pi 资源配置中禁用对方的渲染扩展（或移除该插件），然后执行 `/reload`。本项目不会自动修改或删除其他插件及其配置。
-
-启用状态默认保存在：
-
-```text
-~/.pi/agent/extension-settings/omp-editor.json
-```
-
-如果配置了自定义 Pi agent 目录，该文件会随 agent 目录迁移。配置文件不包含在仓库中。
-
-```json
-{
-  "enabled": true,
-  "toolsEnabled": true,
-  "doneEnabled": true,
-  "footerIconEnabled": true
-}
-```
-
-旧配置只包含 `enabled` 也可使用；缺失的 `toolsEnabled`、`doneEnabled` 和 `footerIconEnabled` 默认启用。
-
-## 更新
-
-对于未固定标签的安装：
+更新：
 
 ```bash
 pi update git:github.com/guoguo397/pi-omp-ui
 ```
 
-更新后重新启动 Pi，或执行 `/reload`。
+安装或更新后重启 Pi，或执行 `/reload`。
+
+> 如果手动安装过 `omp-editor.js` 或 `done.js`，请先将旧脚本移出 `~/.pi/agent/extensions/`，避免重复加载。备份也不要留在自动加载目录中。
+
+## 使用
+
+四项功能默认启用，开关独立保存。以下命令均支持 `on`、`off`、`status`；不带参数等同于 `status`。
+
+| 命令 | 功能 |
+| --- | --- |
+| `/omp-editor` | 圆角输入框；关闭时恢复之前的输入框 |
+| `/omp-tools` | 紧凑工具 UI；关闭时恢复原生显示 |
+| `/omp-done` | 顶边耗时统计；输入框关闭时改为独立通知 |
+| `/omp-footer` | Claude Code 风格状态栏；关闭时恢复原生显示 |
+
+例如：`/omp-footer off` 关闭自定义状态栏，`/omp-footer on` 重新启用。
+
+### 工具展开
+
+- **Fullscreen**：点击工具卡或分组标题展开 / 折叠。
+- **Regular**：使用 Pi 原生工具展开快捷键，默认 **Ctrl+O**；Fullscreen 也支持。
+- 工具组和 Codemode 折叠时最多显示最近 8 项；Edit 默认预览 20 行，展开查看完整内容。
+- 未知工具保留原渲染器。检测到 `pi-cc-extensions` 接管工具渲染时自动让位，可用 `/omp-tools status` 查看。
+
+### 统计与状态栏
+
+```text
+╭──── 本次 9s · 会话累计 2m 15s ────
+╰─
+
+[Opus 5.5] | act git:(master) | ⏱ <1m
+Context ████░░░░░░░░░░░░ 25%
+2 AGENTS.md | 2 MCPs
+▶ ready · thinking high · ↑3.5k ↓200 · $0.0123
+```
+
+- 顶边耗时在重试、压缩及排队执行全部结束后更新；新一轮开始时清除。
+- 会话耗时从本次启动或最近一次 `/reload` 开始计算，随界面重绘更新。
+- 状态栏读取真实会话数据。Context 未知时显示 `?%`；MCP 数为提供可访问工具的命名空间数，不是配置总数。
+- 输入用量包含缓存读写，费用为零时隐藏。保留其他插件状态，但不模拟 Claude Code 权限模式、快捷键或代理数。
+- 支持主题配色和窄屏截断；其他扩展替换状态栏时不干扰对方。
+
+设置保存在 `~/.pi/agent/extension-settings/omp-editor.json`，自定义 agent 目录时随之迁移。旧配置仍可使用，缺失开关默认启用；状态栏沿用 `footerIconEnabled` 设置键。
 
 ## 卸载
 
@@ -180,44 +73,23 @@ pi update git:github.com/guoguo397/pi-omp-ui
 pi remove git:github.com/guoguo397/pi-omp-ui
 ```
 
-如果安装时指定了版本，请使用对应的完整来源，例如：
-
-```bash
-pi remove git:github.com/guoguo397/pi-omp-ui@v1.0.0
-```
-
-卸载后重新启动 Pi，或执行 `/reload`。单独保存的启用状态文件可能仍会保留，如不再需要可手动删除。
+卸载后重启或执行 `/reload`。设置文件仍可能保留，可按需删除。安装固定版本时，在来源后加 `@标签`；卸载使用同一完整来源，固定版本不会跟随主分支更新。
 
 ## 本地开发
 
-```bash
-git clone https://github.com/guoguo397/pi-omp-ui.git
-cd pi-omp-ui
-pi --no-extensions -e .
-```
-
-上述命令仅在本次启动加载此扩展，不写入安装配置；`--no-extensions` 用于避免同时加载其他扩展或已经安装的副本。它会同时禁用其他自动发现的扩展，包括内置 MCP 扩展。
-
-入口位于 `extensions/omp-editor.js`，工具 UI 位于 `extensions/tool-ui/`，完成统计位于 `extensions/lib/done.js`，状态栏位于 `extensions/lib/footer-icon.js`（沿用旧文件名），共享设置位于 `extensions/lib/settings.js`。代码注释使用中文。
-
-运行测试（需要 Node.js 22.19+ 及 Pi 的两个 peer dependencies）：
+需要 Node.js 22.19+ 及 Pi 的两个 peer dependencies。
 
 ```bash
 npm install --ignore-scripts
+pi --no-extensions -e .
 npm test
 npm pack --dry-run
 ```
 
-测试覆盖紧凑卡片、分组边界和鼠标坐标、运行/错误状态、Codemode 子调用、宽窄屏 diff、中文/表情/ANSI 宽度、图片、独立开关、完成统计计时与用量口径、边框居中及窄屏截断、四行状态栏、真实数据与未知用量、主题切换、外部页脚兼容、重载清理及非 TUI 模式。
+`--no-extensions` 仅在本次启动禁用其他自动发现的扩展，包括内置 MCP 扩展。
 
-## 注意事项
+入口：`extensions/omp-editor.js`；工具 UI：`extensions/tool-ui/`；完成统计与状态栏：`extensions/lib/`。
 
-- 输入框继承 Pi 的 `CustomEditor`；工具 UI 适配 `ToolExecutionComponent`、`Container.render` 和鼠标布局；状态栏适配内置 `FooterComponent` 的会话及用量接口。工具分组只影响渲染，不移动原组件树；Pi 内部接口变化时仍可能需要适配。
-- 工具 UI 和状态栏是按参考样式实现的独立功能，不包含 `pi-cc-extensions` 的思考块、Markdown 增强、工具执行覆盖或其他附加功能。
-- 已在开发环境中检查 10–120 列宽度下的空输入、英文、中文及表情、多行和滚动场景。极窄窗口可能触发原生编辑器的宽度或换行限制，建议保持至少 10 列宽度。
-- 多个扩展同时替换主输入框时，可能互相覆盖。
-- 本项目为 OMP 风格的个人定制，并非 OMP 官方插件。
+本项目适配了 Pi 内部 UI 接口，升级 Pi 后可能需要调整。多个扩展替换同一输入框时可能互相覆盖。本项目不是 OMP 官方插件。
 
-## 许可证
-
-[MIT](./LICENSE)
+[更新日志](./CHANGELOG.md) · [MIT 许可证](./LICENSE)

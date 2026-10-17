@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { OmpEditor } from "../extensions/omp-editor.js";
 
-const summary = "本次 29s · 会话累计 3m 39s · tokens 5.6M（输入 5.5M / 输出 47.9k） · $1.6598";
+const summary = "本次 29s · 会话累计 3m 39s";
 function create(getCompletion = () => summary) {
 	return new OmpEditor(
 		{ terminal: { rows: 30 }, requestRender() {} },
@@ -38,7 +38,7 @@ test("completion handles narrow widths, resizing, ANSI, Chinese and emoji within
 		for (const line of lines) assert.ok(visibleWidth(line) <= width, `overflow at ${width}: ${visibleWidth(line)}`);
 		assert.equal(visibleWidth(lines[0]), width);
 	}
-	assert.match(stripTerminalSequences(editor.render(40)[0]), /…/);
+	assert.match(stripTerminalSequences(editor.render(20)[0]), /…/);
 	assert.match(stripTerminalSequences(editor.render(200)[0]), /中文😀/);
 });
 

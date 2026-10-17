@@ -35,13 +35,8 @@ export function registerDone(pi, { onUpdate = () => false } = {}) {
 
 		const now = Date.now();
 		const runTime = startedAt == null ? "" : `本次 ${formatDuration(now - startedAt)} · `;
-		const usage = collectUsage(ctx.sessionManager.getEntries());
-		const input = usage.input + usage.cacheRead + usage.cacheWrite;
-		const total = input + usage.output;
-		const cost = usage.cost > 0 ? ` · $${usage.cost.toFixed(4)}` : "";
-		message =
-			`${runTime}会话累计 ${formatDuration(now - sessionStartedAt)} · ` +
-			`tokens ${formatTokens(total)}（输入 ${formatTokens(input)} / 输出 ${formatTokens(usage.output)}）${cost}`;
+		// 顶部只保留耗时，token 和费用统一由底部状态栏显示。
+		message = `${runTime}会话累计 ${formatDuration(now - sessionStartedAt)}`;
 
 		refresh(ctx, true);
 	});
@@ -53,7 +48,7 @@ export function registerDone(pi, { onUpdate = () => false } = {}) {
 	});
 
 	pi.registerCommand("omp-done", {
-		description: "Toggle completion timing and cumulative token display (on|off|status)",
+		description: "Toggle completion timing display (on|off|status)",
 		handler: async (args, ctx) => {
 			if (ctx.mode !== "tui") return;
 			const action = args.trim().toLowerCase() || "status";
@@ -70,29 +65,6 @@ export function registerDone(pi, { onUpdate = () => false } = {}) {
 	});
 }
 
-/** 与 Pi 内置会话统计一致，包含所有分支、压缩、摘要及工具报告的嵌套用量。 */
-export function collectUsage(entries) {
-	const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-	const add = (usage) => {
-		if (!usage) return;
-		total.input += usage.input ?? 0;
-		total.output += usage.output ?? 0;
-		total.cacheRead += usage.cacheRead ?? 0;
-		total.cacheWrite += usage.cacheWrite ?? 0;
-		total.cost += usage.cost?.total ?? 0;
-	};
-
-	for (const entry of entries) {
-		if (entry.type === "usage") add(entry.usage);
-		else if (entry.type === "branch_summary" || entry.type === "compaction") add(entry.usage);
-		else if (entry.type === "message") {
-			const { message } = entry;
-			if (message.role === "assistant" || message.role === "toolResult") add(message.usage);
-		}
-	}
-	return total;
-}
-
 export function formatDuration(ms) {
 	const seconds = Math.max(0, Math.round(ms / 1000));
 	const h = Math.floor(seconds / 3600);
@@ -101,10 +73,4 @@ export function formatDuration(ms) {
 	if (h) return `${h}h ${m}m ${s}s`;
 	if (m) return `${m}m ${s}s`;
 	return `${s}s`;
-}
-
-export function formatTokens(count) {
-	if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-	if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
-	return String(count);
 }
