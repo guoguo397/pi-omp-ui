@@ -1,18 +1,30 @@
 import { readSettings, updateSettings } from "./settings.js";
 
-/** 内置原 done.js：Agent 完全结束后显示本轮耗时、会话耗时与累计用量。 */
-export function registerDone(pi) {
+/** 优先将完成统计交给输入框；未接管输入框时才回退到独立通知。 */
+export function registerDone(pi, { onUpdate = () => false } = {}) {
 	let enabled = readSettings().doneEnabled !== false;
 	let sessionStartedAt = Date.now();
 	let runStartedAt;
+	let message = "";
+	const refresh = (ctx, notify = false) => {
+		if (ctx.mode !== "tui") return;
+		const text = enabled ? message : "";
+		const embedded = onUpdate(text, ctx);
+		if (notify && text && !embedded) ctx.ui.notify(ctx.ui.theme.fg("success", text), "info");
+	};
 
-	pi.on("session_start", () => {
+	pi.on("session_start", (_event, ctx) => {
 		sessionStartedAt = Date.now();
 		runStartedAt = undefined;
+		message = "";
+		refresh(ctx);
 	});
 
-	pi.on("before_agent_start", () => {
+	pi.on("before_agent_start", (_event, ctx) => {
 		runStartedAt = Date.now();
+		// 新一轮开始时恢复原生运行指示，避免上轮统计盖住进度。
+		message = "";
+		refresh(ctx);
 	});
 
 	// agent_end 之后仍可能重试、压缩或继续执行；仅在最终 settled 时通知。
@@ -27,23 +39,28 @@ export function registerDone(pi) {
 		const input = usage.input + usage.cacheRead + usage.cacheWrite;
 		const total = input + usage.output;
 		const cost = usage.cost > 0 ? ` · $${usage.cost.toFixed(4)}` : "";
-		const message =
+		message =
 			`${runTime}会话累计 ${formatDuration(now - sessionStartedAt)} · ` +
 			`tokens ${formatTokens(total)}（输入 ${formatTokens(input)} / 输出 ${formatTokens(usage.output)}）${cost}`;
 
-		ctx.ui.notify(ctx.ui.theme.fg("success", message), "info");
+		refresh(ctx, true);
 	});
 
-	pi.on("session_shutdown", () => { runStartedAt = undefined; });
+	pi.on("session_shutdown", (_event, ctx) => {
+		runStartedAt = undefined;
+		message = "";
+		refresh(ctx);
+	});
 
 	pi.registerCommand("omp-done", {
-		description: "Toggle completion timing and cumulative token notifications (on|off|status)",
+		description: "Toggle completion timing and cumulative token display (on|off|status)",
 		handler: async (args, ctx) => {
 			if (ctx.mode !== "tui") return;
 			const action = args.trim().toLowerCase() || "status";
 			if (action === "on" || action === "off") {
 				enabled = action === "on";
 				updateSettings({ doneEnabled: enabled });
+				refresh(ctx);
 			} else if (action !== "status") {
 				ctx.ui.notify("Usage: /omp-done on|off|status", "warning");
 				return;

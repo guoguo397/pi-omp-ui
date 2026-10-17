@@ -24,7 +24,7 @@ const entries = [
 	{ type: "message", message: { role: "assistant" } },
 ];
 
-function create(mode = "tui") {
+function create(mode = "tui", options) {
 	const handlers = new Map();
 	const commands = new Map();
 	const notifications = [];
@@ -39,7 +39,7 @@ function create(mode = "tui") {
 	registerDone({
 		on: (name, handler) => handlers.set(name, handler),
 		registerCommand: (name, command) => commands.set(name, command),
-	});
+	}, options);
 	return { ctx, commands, notifications, emit: (name, event = {}) => handlers.get(name)?.(event, ctx) };
 }
 
@@ -131,9 +131,30 @@ test("done switch persists independently of editor/tools and reloads without sta
 	assert.match(reloaded.notifications.at(-1).message, /Usage:/);
 });
 
+test("done publishes raw text to the border, clears it on lifecycle changes and toggles independently", async () => {
+	const updates = [];
+	const session = create("tui", { onUpdate: (text) => { updates.push(text); return true; } });
+	session.emit("session_start");
+	assert.equal(updates.at(-1), "");
+	session.emit("before_agent_start");
+	session.emit("agent_settled");
+	assert.match(updates.at(-1), /^本次 .*tokens 775/);
+	assert.doesNotMatch(updates.at(-1), /success:/, "theme colors belong to render time");
+	assert.deepEqual(session.notifications, []);
+	await session.commands.get("omp-done").handler("off", session.ctx);
+	assert.equal(updates.at(-1), "");
+	await session.commands.get("omp-done").handler("on", session.ctx);
+	assert.match(updates.at(-1), /^本次/);
+	session.emit("before_agent_start");
+	assert.equal(updates.at(-1), "");
+	session.emit("agent_settled");
+	session.emit("session_shutdown");
+	assert.equal(updates.at(-1), "");
+});
+
 test("done stays silent and never reads usage or writes settings outside TUI", async () => {
 	for (const mode of ["rpc", "json", "print"]) {
-		const session = create(mode);
+		const session = create(mode, { onUpdate: () => { throw new Error("must not update terminal UI"); } });
 		session.ctx.sessionManager.getEntries = () => { throw new Error("must not read usage"); };
 		session.emit("session_start");
 		session.emit("before_agent_start");

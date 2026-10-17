@@ -2,6 +2,7 @@ import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import {
 	sliceByColumn,
 	stripTerminalSequences,
+	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import { readSettings, updateSettings } from "./lib/settings.js";
@@ -32,8 +33,9 @@ function fitColumns(text, width) {
 }
 
 export class OmpEditor extends CustomEditor {
-	constructor(tui, theme, keybindings) {
+	constructor(tui, theme, keybindings, { getCompletion = () => "" } = {}) {
 		super(tui, theme, keybindings, { embedWorkingStatus: true });
+		this.getCompletion = getCompletion;
 		this.autocompleteStartRow = Number.POSITIVE_INFINITY;
 		this.autocompleteRowOffset = 0;
 
@@ -44,6 +46,17 @@ export class OmpEditor extends CustomEditor {
 	/** Pi 重新应用设置时，仍保留 OMP 风格的两列内部留白。 */
 	setPaddingX(_padding) {
 		super.setPaddingX(BASE_PADDING_X);
+	}
+
+	/** 完成统计嵌入顶边正中；窄屏按终端列宽截断，不增加界面高度。 */
+	renderTopBorder(width, hiddenLineCount) {
+		const message = this.getCompletion();
+		// 滚动提示优先，保留原生多行编辑行为。
+		if (!message || hiddenLineCount > 0 || width < 7) return super.renderTopBorder(width, hiddenLineCount);
+		const label = ` ${truncateToWidth(message, width - 4, "…")} `;
+		const remaining = width - visibleWidth(label);
+		const left = Math.floor(remaining / 2);
+		return this.borderColor("─".repeat(left)) + label + this.borderColor("─".repeat(remaining - left));
 	}
 
 	/** 添加不可见标记，供 render() 可靠地定位 Pi 的底边框。 */
@@ -132,25 +145,58 @@ export class OmpEditor extends CustomEditor {
 
 export default function ompEditorExtension(pi) {
 	registerToolUi(pi);
-	registerDone(pi);
 	let previousFactory;
 	let enabled = readEnabledSetting();
 	let deferredInstall;
+	let completion = "";
+	let activeTui;
+	let activeContext;
+	let footerHidden = false;
 
-	const factory = (tui, theme, keybindings) =>
-		new OmpEditor(tui, theme, keybindings);
+	const factory = (tui, theme, keybindings) => {
+		activeTui = tui;
+		return new OmpEditor(tui, theme, keybindings, {
+			// 渲染时取当前主题，不缓存带旧主题颜色的统计文本。
+			getCompletion: () => completion ? activeContext.ui.theme.fg("success", completion) : "",
+		});
+	};
 	const isActive = (ctx) => ctx.ui.getEditorComponent() === factory;
+
+	registerDone(pi, {
+		onUpdate(message, ctx) {
+			completion = message;
+			if (!enabled || !isActive(ctx)) return false;
+			activeTui?.requestRender();
+			return true;
+		},
+	});
 
 	const install = (ctx) => {
 		if (ctx.mode !== "tui") return;
-		if (!isActive(ctx)) previousFactory = ctx.ui.getEditorComponent();
-		ctx.ui.setEditorComponent(factory);
+		activeContext = ctx;
+		if (!isActive(ctx)) {
+			previousFactory = ctx.ui.getEditorComponent();
+			ctx.ui.setEditorComponent(factory);
+		}
+		if (!footerHidden) {
+			ctx.ui.setFooter(() => {
+				footerHidden = true;
+				return {
+					render: () => [],
+					invalidate() {},
+					// 被其他扩展替换时释放所有权，避免卸载时误清对方页脚。
+					dispose() { footerHidden = false; },
+				};
+			});
+		}
 	};
 
 	const uninstall = (ctx) => {
-		if (ctx.mode === "tui" && isActive(ctx)) {
-			ctx.ui.setEditorComponent(previousFactory);
-		}
+		if (ctx.mode !== "tui") return;
+		if (isActive(ctx)) ctx.ui.setEditorComponent(previousFactory);
+		if (footerHidden) ctx.ui.setFooter(undefined);
+		activeTui = undefined;
+		activeContext = undefined;
 	};
 
 	const scheduleDeferredInstall = (ctx) => {
@@ -160,7 +206,7 @@ export default function ompEditorExtension(pi) {
 		// 覆盖按持久化设置启用的自定义输入框。
 		deferredInstall = setTimeout(() => {
 			deferredInstall = undefined;
-			if (enabled && ctx.mode === "tui" && !isActive(ctx)) install(ctx);
+			if (enabled && ctx.mode === "tui" && (!isActive(ctx) || !footerHidden)) install(ctx);
 		}, 0);
 	};
 
@@ -201,7 +247,7 @@ export default function ompEditorExtension(pi) {
 			}
 			if (action === "status") {
 				// 已保存为启用状态时，修复输入框被意外替换的情况。
-				if (enabled && !isActive(ctx)) install(ctx);
+				if (enabled && (!isActive(ctx) || !footerHidden)) install(ctx);
 				ctx.ui.notify(
 					`omp-editor is ${enabled && isActive(ctx) ? "enabled" : "disabled"} (saved)`,
 					"info",
