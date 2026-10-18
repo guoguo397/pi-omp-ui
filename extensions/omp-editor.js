@@ -2,6 +2,7 @@ import { OmpEditor } from "./lib/editor.js";
 import { readSettings, updateSettings } from "./lib/settings.js";
 import { registerDone } from "./lib/done.js";
 import { registerFooterIcon } from "./lib/footer-icon.js";
+import { registerUserMessageStyle } from "./lib/user-message.js";
 import { registerToolUi } from "./tool-ui/extension.js";
 
 export { OmpEditor };
@@ -9,6 +10,7 @@ export { OmpEditor };
 export default function ompEditorExtension(pi) {
 	registerToolUi(pi);
 	registerFooterIcon(pi);
+	registerUserMessageStyle(pi);
 	let previousFactory;
 	let enabled = readSettings().enabled !== false;
 	let deferredInstall;
