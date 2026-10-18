@@ -65,7 +65,7 @@ test("groups are render-only projections and preserve native tool traversal", ()
 	const assistant = new AssistantMessageComponent();
 	for (const value of [a, spacer, assistant, b]) container.addChild(value);
 	const originalChildren = [...container.children];
-	assert.equal(plainLines(container)[1].trim(), "● Multiple Tools (2) · click to show more");
+	assert.equal(plainLines(container)[1].trim(), "● Multiple Tools (2)");
 	assert.doesNotMatch(plainLines(container).join("\n"), /Read×|Ls×/);
 	assert.match(plainLines(container).join("\n"), /├ ✓ Read[\s\S]*└ ✓ Ls/);
 	assert.deepEqual(container.children, originalChildren);
@@ -150,7 +150,7 @@ test("dynamic assistant visibility breaks a previously projected group", () => {
 	const container = new Container();
 	const assistant = new AssistantMessageComponent();
 	container.addChild(tool()); container.addChild(assistant); container.addChild(tool());
-	assert.match(plainLines(container).join("\n"), /Read \(2\)/);
+	assert.equal(plainLines(container)[1].trim(), "● Read (2)");
 	assistant.contentContainer.addChild(new Text("New text", 0, 0));
 	assert.doesNotMatch(plainLines(container).join("\n"), /Read \(2\)/);
 });
@@ -161,7 +161,7 @@ test("pending, failed, cancelled nested calls and codemode summaries", () => {
 	const pending = tool("ls", {}, { pending: true });
 	const failed = tool("grep", {}, { result: { isError: true, content: [{ type: "text", text: "Permission denied" }] } });
 	container.addChild(pending); container.addChild(failed);
-	assert.equal(plainLines(container)[1].trim(), "● Multiple Tools (2) · 1 running · 1 failed · click to show more");
+	assert.equal(plainLines(container)[1].trim(), "● Multiple Tools (2) · 1 running · 1 failed");
 	assert.doesNotMatch(plainLines(container)[1], /Ls×|Grep×/);
 	const code = tool("codemode", { code: "await tools.read({path:'test'});" }, { result: {
 		content: [{ type: "text", text: "Script completed\nWall time 1.2 seconds\nOutput:\n" }, { type: "text", text: "hello\nworld" }],

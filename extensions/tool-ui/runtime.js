@@ -44,7 +44,7 @@ class ToolGroup {
 		const pad = padding(tools[0], width);
 		const inner = Math.max(1, width - pad * 2);
 		const indent = " ".repeat(pad);
-		const lines = ["", indent + fitLine(renderGroupHeader(tools, theme, expanded, state.hint()), inner)];
+		const lines = ["", indent + fitLine(renderGroupHeader(tools, theme, expanded), inner)];
 		if (expanded) {
 			for (const tool of tools) {
 				const output = tool.render(width);
