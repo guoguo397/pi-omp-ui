@@ -22,6 +22,7 @@ export default function ompEditorExtension(pi) {
 		activeTui = tui;
 		return new OmpEditor(tui, theme, keybindings, {
 			cwd: activeContext.cwd,
+			getSessionTitle: () => pi.getSessionName?.() ?? "",
 			// 渲染时取当前主题，不缓存带旧主题颜色的统计文本。
 			getCompletion: () => completion ? activeContext.ui.theme.fg("success", completion) : "",
 		});

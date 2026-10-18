@@ -20,6 +20,7 @@ function mock(mode) {
 	let editorInstance;
 	let footer;
 	let renders = 0;
+	let sessionName;
 	const tui = { terminal: { rows: 30 }, requestRender() { renders++; } };
 	const ctx = {
 		mode,
@@ -40,11 +41,13 @@ function mock(mode) {
 		},
 	};
 	extension({
+		getSessionName: () => sessionName,
 		on(name, handler) { if (!events.has(name)) events.set(name, []); events.get(name).push(handler); },
 		registerCommand(name, command) { commands.set(name, command); },
 	});
 	return {
 		ctx, commands, notifications,
+		setSessionName(name) { sessionName = name; },
 		get editor() { return editorInstance; },
 		get footer() { return footer; },
 		get renders() { return renders; },
@@ -140,6 +143,30 @@ test("completion is rendered in the editor border without duplicate notification
 	} finally {
 		await session.emit("session_shutdown");
 		assert.equal(session.footer, undefined);
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+});
+
+test("editor displays the live session name and updates it across naming and session changes", async () => {
+	const session = mock("tui");
+	try {
+		session.setSessionName("优化工具分组和状态栏");
+		await session.emit("session_start");
+		assert.match(session.editor.render(160)[0], /优化工具分组和状态栏/);
+		session.setSessionName("另一个会话");
+		assert.match(session.editor.render(160)[0], /另一个会话/);
+		assert.doesNotMatch(session.editor.render(160)[0], /优化工具/);
+		await session.emit("before_agent_start");
+		await session.emit("agent_settled");
+		assert.match(session.editor.render(160)[0], /本轮.*另一个会话/);
+		await session.commands.get("omp-done").handler("off", session.ctx);
+		assert.match(session.editor.render(160)[0], /另一个会话/);
+		assert.doesNotMatch(session.editor.render(160)[0], /本轮/);
+		session.setSessionName(undefined);
+		await session.emit("session_start");
+		assert.doesNotMatch(session.editor.render(160)[0], /另一个会话/);
+	} finally {
+		await session.emit("session_shutdown");
 		rmSync(agentDir, { recursive: true, force: true });
 	}
 });

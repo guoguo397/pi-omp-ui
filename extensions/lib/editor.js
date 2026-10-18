@@ -47,9 +47,10 @@ function fitColumns(text, width) {
 }
 
 export class OmpEditor extends CustomEditor {
-	constructor(tui, theme, keybindings, { getCompletion = () => "", cwd = process.cwd() } = {}) {
+	constructor(tui, theme, keybindings, { getCompletion = () => "", getSessionTitle = () => "", cwd = process.cwd() } = {}) {
 		super(tui, theme, keybindings, { embedWorkingStatus: true });
 		this.getCompletion = getCompletion;
+		this.getSessionTitle = getSessionTitle;
 		this.cwd = cwd;
 		this.autocompleteStartRow = Number.POSITIVE_INFINITY;
 		this.autocompleteRowOffset = 0;
@@ -151,15 +152,31 @@ export class OmpEditor extends CustomEditor {
 		super.setPaddingX(BASE_PADDING_X);
 	}
 
-	/** 完成统计嵌入顶边正中；窄屏按终端列宽截断，不增加界面高度。 */
+	/** 耗时仍居中，会话名嵌入右半段；只覆盖空横线，不挤占原生运行或滚动提示。 */
 	renderTopBorder(width, hiddenLineCount) {
 		const message = this.getCompletion();
 		// 滚动提示优先，保留原生多行编辑行为。
-		if (!message || hiddenLineCount > 0 || width < 7) return super.renderTopBorder(width, hiddenLineCount);
-		const label = ` ${truncateToWidth(message, width - 4, "…")} `;
-		const remaining = width - visibleWidth(label);
-		const left = Math.floor(remaining / 2);
-		return this.borderColor("─".repeat(left)) + label + this.borderColor("─".repeat(remaining - left));
+		if (hiddenLineCount > 0 || width < 7) return super.renderTopBorder(width, hiddenLineCount);
+		let border;
+		if (message) {
+			const label = ` ${truncateToWidth(message, width - 4, "…")} `;
+			const remaining = width - visibleWidth(label);
+			const left = Math.floor(remaining / 2);
+			border = this.borderColor("─".repeat(left)) + label + this.borderColor("─".repeat(remaining - left));
+		} else {
+			border = super.renderTopBorder(width, hiddenLineCount);
+		}
+		const title = stripTerminalSequences(String(this.getSessionTitle() ?? ""))
+			.replace(/[\x00-\x1f\x7f-\x9f]/g, " ").replace(/\s+/g, " ").trim();
+		if (!title) return border;
+		// 留一列横线分隔前面的标签，右侧留两列收尾；窄屏优先保住耗时及运行提示。
+		const trailing = /─+$/.exec(stripTerminalSequences(border))?.[0].length ?? 0;
+		const start = Math.max(Math.ceil(width / 2), width - trailing + 1);
+		const available = width - start - 4;
+		if (available < 4) return border;
+		const label = ` ${truncateToWidth(title, available, "…")} `;
+		const labelStart = width - 2 - visibleWidth(label);
+		return sliceByColumn(border, 0, labelStart, true) + this.borderColor(label + "──");
 	}
 
 	/** 添加不可见标记，供 render() 可靠地定位 Pi 的底边框。 */

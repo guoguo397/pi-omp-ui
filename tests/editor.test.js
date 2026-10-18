@@ -4,12 +4,12 @@ import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-w
 import { OmpEditor } from "../extensions/lib/editor.js";
 
 const summary = "本轮 29s · 会话累计 3m 39s";
-function create(getCompletion = () => summary) {
+function create(getCompletion = () => summary, getSessionTitle = () => "") {
 	return new OmpEditor(
 		{ terminal: { rows: 30 }, requestRender() {} },
 		{ borderColor: (text) => `\x1b[35m${text}\x1b[0m`, selectList: {} },
 		{ matches: () => false },
-		{ getCompletion },
+		{ getCompletion, getSessionTitle },
 	);
 }
 
@@ -55,6 +55,58 @@ test("completion respects current theme colors and preserves the focused input/I
 	editor.invalidate();
 	assert.ok(editor.render(180)[0].includes("\x1b[36m"));
 	assert.ok(!editor.render(180)[0].includes("\x1b[32m"));
+});
+
+test("session title sits on the right without shifting centered timing or adding rows", () => {
+	const title = "优化工具分组和状态栏";
+	const editor = create(() => summary, () => title);
+	const blank = create();
+	for (const width of [120, 160, 200, 240]) {
+		const lines = editor.render(width);
+		const top = stripTerminalSequences(lines[0]);
+		const original = stripTerminalSequences(blank.render(width)[0]);
+		assert.ok(top.includes(title));
+		assert.equal(top.indexOf(summary), original.indexOf(summary), "timing stays at the same column");
+		assert.ok(visibleWidth(top.slice(0, top.indexOf(title))) >= width / 2);
+		assert.ok(top.endsWith(" ──"));
+		assert.equal(visibleWidth(top), width);
+		assert.equal(lines.length, blank.render(width).length);
+	}
+});
+
+test("session title reads live names, strips controls, truncates safely and follows border colors", () => {
+	let title = "";
+	const editor = create(() => "", () => title);
+	const original = editor.render(160)[0];
+	title = "First title";
+	assert.match(stripTerminalSequences(editor.render(160)[0]), /First title/);
+	title = "新会话😀\n\x1b[31m标题\t\x07";
+	const top = editor.render(160)[0];
+	assert.match(stripTerminalSequences(top), /新会话😀 标题/);
+	assert.doesNotMatch(top, /\x1b\[31m|[\n\t\x07]/);
+	assert.match(top, /\x1b\[35m 新会话😀 标题/);
+	title = "长标题中文😀".repeat(30);
+	for (let width = 7; width <= 180; width++) {
+		const line = editor.render(width)[0];
+		assert.equal(visibleWidth(line), width);
+	}
+	assert.match(stripTerminalSequences(editor.render(80)[0]), /…/);
+	title = undefined;
+	assert.equal(editor.render(160)[0], original, "unnamed sessions retain the original border");
+});
+
+test("title yields to timing, working status and scroll indicators on constrained layouts", () => {
+	const title = "RIGHT TITLE";
+	const editor = create(() => summary, () => title);
+	assert.doesNotMatch(stripTerminalSequences(editor.render(30)[0]), /RIGHT/);
+	assert.equal(editor.render(30)[0], create().render(30)[0]);
+	const working = create(() => "", () => title);
+	working.setWorkingStatusIndicator({ renderInBorder: () => "working", renderSpinnerInBorder: () => "●" });
+	assert.match(stripTerminalSequences(working.render(120)[0]), /working.*RIGHT TITLE/);
+	assert.match(stripTerminalSequences(working.render(20)[0]), /working/);
+	working.setText(Array.from({ length: 30 }, (_, index) => `line ${index}`).join("\n"));
+	assert.match(stripTerminalSequences(working.render(120)[0]), /↑/);
+	assert.doesNotMatch(stripTerminalSequences(working.render(120)[0]), /RIGHT TITLE/);
 });
 
 test("native working and multiline scroll indicators remain available", () => {
