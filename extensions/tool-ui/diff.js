@@ -36,8 +36,28 @@ export function parseDiff(details) {
 	});
 }
 
+// parseDiff 产生的行只读；按行数组缓存与主题、宽度无关的统计和配对。
+const layoutCache = new WeakMap();
+
+function diffLayout(rows) {
+	let layout = layoutCache.get(rows);
+	if (!layout) {
+		let added = 0;
+		let removed = 0;
+		let max = 1;
+		for (const row of rows) {
+			if (row.kind === "+") added++;
+			if (row.kind === "-") removed++;
+			max = Math.max(max, row.old ?? 0, row.next ?? 0);
+		}
+		layout = { stats: { added, removed }, digits: String(max).length };
+		layoutCache.set(rows, layout);
+	}
+	return layout;
+}
+
 export function diffStats(rows) {
-	return { added: rows.filter((row) => row.kind === "+").length, removed: rows.filter((row) => row.kind === "-").length };
+	return diffLayout(rows).stats;
 }
 
 function pairs(rows) {
@@ -77,20 +97,28 @@ function paint(row, side, width, digits, theme) {
 /** 宽屏左右对照，窄屏自动切换统一 diff；折叠时限制高度，但不丢失展开内容。 */
 export function renderDiffRows(rows, width, theme, expanded = false) {
 	if (!rows.length || width < 1) return [];
-	const digits = String(rows.reduce((max, row) => Math.max(max, row.old ?? 0, row.next ?? 0), 1)).length;
+	const layout = diffLayout(rows);
+	const { digits } = layout;
 	let lines;
+	let total;
 	if (width >= 100) {
 		const left = Math.floor((width - 3) / 2);
 		const right = width - left - 3;
-		lines = [theme.fg("dim", `${pad("old", left)} │ ${pad("new", right)}`), ...pairs(rows).map(([old, next]) =>
+		const paired = layout.pairs ??= pairs(rows);
+		total = paired.length + 1;
+		// 表头也占一行；先截取再着色/计算列宽，折叠成本不随隐藏文本增长。
+		const shown = expanded ? paired : paired.slice(0, 19);
+		lines = [theme.fg("dim", `${pad("old", left)} │ ${pad("new", right)}`), ...shown.map(([old, next]) =>
 			`${paint(old, "old", left, digits, theme)}${theme.fg("dim", " │ ")}${paint(next, "new", right, digits, theme)}`)];
 	} else {
-		lines = rows.map((row) => {
+		total = rows.length;
+		const shown = expanded ? rows : rows.slice(0, 20);
+		lines = shown.map((row) => {
 			if (row.kind === "gap") return theme.fg("dim", "…");
 			const token = row.kind === "+" ? "toolDiffAdded" : row.kind === "-" ? "toolDiffRemoved" : "toolDiffContext";
 			return theme.fg(token, truncateToWidth(`${row.kind}${String(row.next ?? row.old).padStart(digits)} ${row.text}`, width, ""));
 		});
 	}
-	if (!expanded && lines.length > 20) lines = [...lines.slice(0, 20), theme.fg("dim", `… ${lines.length - 20} more rows`)];
+	if (!expanded && total > 20) lines.push(theme.fg("dim", `… ${total - 20} more rows`));
 	return lines.map((line) => sliceByColumn(line, 0, width, true));
 }

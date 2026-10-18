@@ -1,5 +1,5 @@
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { callSummary, duration, nestedCalls, oneLine, outputText, plain, resultSummary, status, title } from "./format.js";
+import { callSummary, duration, getToolCache, nestedCalls, oneLine, plain, resultSummary, status, title, toolOutputText } from "./format.js";
 import { diffStats, parseDiff, renderDiffRows } from "./diff.js";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -15,8 +15,12 @@ export function icon(value, theme) {
 function diffRows(tool) {
 	const details = tool.result?.details;
 	if (!details || typeof details !== "object" || tool.result?.isError) return [];
-	if (!diffCache.has(details)) diffCache.set(details, parseDiff(details));
-	return diffCache.get(details);
+	let cached = diffCache.get(details);
+	if (!cached || cached.patch !== details.patch || cached.diff !== details.diff) {
+		cached = { patch: details.patch, diff: details.diff, rows: parseDiff(details) };
+		diffCache.set(details, cached);
+	}
+	return cached.rows;
 }
 
 export function toolLine(tool, theme, grouped = false) {
@@ -49,8 +53,7 @@ function inputText(args) {
 	catch { return "[Input unavailable]"; }
 }
 
-export function renderTool(tool, width, theme, hint) {
-	if (width < 1) return [];
+function renderToolText(tool, width, theme, hint) {
 	const pad = padding(tool, width);
 	const inner = Math.max(1, width - pad * 2);
 	const lines = [toolLine(tool, theme)];
@@ -71,7 +74,7 @@ export function renderTool(tool, width, theme, hint) {
 	if (tool.expanded) {
 		lines.push(theme.fg("dim", "  Input"));
 		for (const line of wrapTextWithAnsi(inputText(tool.args), Math.max(1, inner - 2))) lines.push(theme.fg("muted", `  ${line}`));
-		const output = outputText(tool.result, tool.toolName);
+		const output = toolOutputText(tool);
 		if (output) {
 			lines.push(theme.fg("dim", "  Output"));
 			for (const line of wrapTextWithAnsi(output, Math.max(1, inner - 2))) lines.push(theme.fg(tool.result?.isError ? "error" : "toolOutput", `  ${line}`));
@@ -79,10 +82,36 @@ export function renderTool(tool, width, theme, hint) {
 		const full = tool.result?.details?.fullOutputPath;
 		if (full) lines.push(theme.fg("dim", `  Full output: ${oneLine(full, 2000)}`));
 	}
-	const rendered = ["", ...lines.map((line) => " ".repeat(pad) + truncateToWidth(line, inner, ""))];
-	// 原生组件负责图像转换及缓存；只在展开时显示，避免折叠卡吞掉图片。
-	if (tool.expanded && tool.showImages) {
-		for (const image of tool.imageComponents ?? []) rendered.push(...image.render(width));
+	return ["", ...lines.map((line) => " ".repeat(pad) + truncateToWidth(line, inner, ""))];
+}
+
+export function renderTool(tool, width, theme, hint) {
+	if (width < 1) return [];
+	const cache = getToolCache(tool);
+	// Theme 实例可能不变，但终端默认色及色彩模式会更新。
+	const colors = theme.colors;
+	const mode = theme.getColorMode?.();
+	const cacheable = status(tool) !== "running" && !(tool.toolName === "codemode" &&
+		nestedCalls(tool.result).some((call) => !["ok", "error", "cancelled"].includes(call.status)));
+	const previous = cache.render;
+	let rendered;
+	if (cacheable && previous && previous.width === width && previous.expanded === tool.expanded &&
+		previous.outputPad === tool.outputPad && previous.durationMs === tool.result?.durationMs && previous.hint === hint &&
+		previous.theme === theme && previous.colors === colors && previous.mode === mode &&
+		previous.fg === theme.fg && previous.bg === theme.bg && previous.bold === theme.bold) {
+		rendered = previous.lines;
+	} else {
+		rendered = renderToolText(tool, width, theme, hint);
+		cache.render = cacheable ? {
+			width, expanded: tool.expanded, outputPad: tool.outputPad, durationMs: tool.result?.durationMs, hint,
+			theme, colors, mode, fg: theme.fg, bg: theme.bg, bold: theme.bold, lines: rendered,
+		} : undefined;
+	}
+	// 图像会异步完成转换，始终交回原生组件渲染；不把图像帧存入文本缓存。
+	if (tool.expanded && tool.showImages && tool.imageComponents?.length) {
+		const withImages = [...rendered];
+		for (const image of tool.imageComponents) withImages.push(...image.render(width));
+		return withImages;
 	}
 	return rendered;
 }

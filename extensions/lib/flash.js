@@ -120,14 +120,17 @@ export function registerFlash(pi, { getMode }) {
 							details.started = true;
 							return ctx.modelRegistry.streamSimple(selectedModel, context, { ...options, maxTokens: 4096 });
 						},
-						finishTurn({ toolResults }) {
-							const failed = toolResults.find((result) => result.isError);
-							if (!failed) return;
-							failure = failed.content.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim() || "flash 工具执行失败（未提供错误文本）";
-							return { action: "end" };
+						finishTurn() {
+							if (failure) return { action: "end" };
 						},
 					});
 					agent.subscribe((event) => {
+						// sequential 在下一次调用前等待此事件，也覆盖参数校验、未知工具和抛错。
+						// 保留首个失败，不用 abort 覆盖错误原因或丢失已取得的用量。
+						if (event.type === "tool_execution_end" && event.isError && !failure) {
+							failure = (event.result.content ?? []).filter((part) => part.type === "text")
+								.map((part) => part.text).join("\n").trim() || "flash 工具执行失败（未提供错误文本）";
+						}
 						if (event.type !== "message_end" || event.message.role !== "assistant") return;
 						const used = event.message.usage;
 						for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"]) usage[key] += used?.[key] ?? 0;

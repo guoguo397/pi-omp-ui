@@ -1,6 +1,6 @@
 import { AssistantMessageComponent, ToolExecutionComponent, keyText } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer } from "@earendil-works/pi-tui";
-import { COMPACT_TOOLS, status } from "./format.js";
+import { COMPACT_TOOLS, invalidateToolCache, status } from "./format.js";
 import { fitGroupRow, fitLine, padding, renderGroupHeader, renderTool } from "./render.js";
 
 const PATCH_KEY = Symbol.for("pi-omp-editor.tool-ui");
@@ -102,12 +102,14 @@ function project(children, state) {
 	return changed ? projected : undefined;
 }
 
-/** Pi 1.3.0 的组件适配仅覆盖 render/handleMouse，不改工具定义、结果或执行路径。 */
+/** Pi 1.3.0 的组件适配：包装渲染、鼠标和更新通知，不改工具定义、结果或执行路径。 */
 export function installToolUi({ theme, hint }) {
 	globalThis[PATCH_KEY]?.dispose();
+	invalidateToolCache();
 	const toolPrototype = ToolExecutionComponent.prototype;
 	const containerPrototype = Container.prototype;
-	const original = { toolRender: toolPrototype.render, toolMouse: toolPrototype.handleMouse, containerRender: containerPrototype.render };
+	const original = { toolRender: toolPrototype.render, toolMouse: toolPrototype.handleMouse,
+		toolUpdateDisplay: toolPrototype.updateDisplay, containerRender: containerPrototype.render };
 	const state = {
 		active: true,
 		groups: new WeakMap(),
@@ -123,6 +125,11 @@ export function installToolUi({ theme, hint }) {
 			}, 90);
 			state.timer.unref?.();
 		},
+	};
+	const toolUpdateDisplay = function (...args) {
+		// updateArgs/updateResult/setExpanded/invalidate 等均走原生更新入口。
+		invalidateToolCache(this);
+		return original.toolUpdateDisplay.apply(this, args);
 	};
 	const toolRender = function (width) {
 		if (!state.isEnabled() || !isCompact(this)) return original.toolRender.call(this, width);
@@ -153,14 +160,17 @@ export function installToolUi({ theme, hint }) {
 	};
 	toolPrototype.render = toolRender;
 	toolPrototype.handleMouse = toolMouse;
+	toolPrototype.updateDisplay = toolUpdateDisplay;
 	containerPrototype.render = containerRender;
 	const patch = {
 		dispose() {
 			if (!state.active) return;
 			state.active = false;
 			clearTimeout(state.timer);
+			invalidateToolCache();
 			if (toolPrototype.render === toolRender) toolPrototype.render = original.toolRender;
 			if (toolPrototype.handleMouse === toolMouse) toolPrototype.handleMouse = original.toolMouse;
+			if (toolPrototype.updateDisplay === toolUpdateDisplay) toolPrototype.updateDisplay = original.toolUpdateDisplay;
 			if (containerPrototype.render === containerRender) containerPrototype.render = original.containerRender;
 			if (globalThis[PATCH_KEY] === patch) delete globalThis[PATCH_KEY];
 		},

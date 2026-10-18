@@ -210,6 +210,55 @@ test("tool errors without meaningful text stop the worker and use a fallback mes
 	}
 });
 
+test("a failed call stops later writes in the same response, including preparation failures", async (t) => {
+	const cases = [
+		{ name: "permission denial", error: /Permission denied/, content: [{ type: "text", text: "Permission denied" }] },
+		{ name: "empty error", error: /工具执行失败.*未提供错误文本/, content: [] },
+		{ name: "thrown tool error", error: /Read failed/, thrown: true },
+		{ name: "schema validation", error: /Validation failed/, first: call("read", {}) },
+		{ name: "unknown tool", error: /not found/, first: call("powershell", { command: "blocked" }) },
+		{ name: "out-of-scope write", error: /只能修改/, first: call("write", { path: "other.txt", content: "bad" }) },
+	];
+	for (const item of cases) await t.test(item.name, async (t) => {
+		const s = create(t);
+		const executeTool = s.ctx.executeTool;
+		if (!item.first) s.ctx.executeTool = async (name, ...args) => {
+			if (name !== "read") return executeTool(name, ...args);
+			s.calls.push({ name });
+			if (item.thrown) throw new Error("Read failed");
+			return { isError: true, content: item.content, details: undefined };
+		};
+		s.host.setResult(() => toolsResponse(
+			item.first ?? call("read", { path: "target.txt" }),
+			call("write", { path: "target.txt", content: "must not be written" }),
+			call("edit", { path: "target.txt", edits: [{ oldText: "old label", newText: "must not be edited" }] }),
+		));
+		const result = await s.run();
+		assert.equal(result.isError, true);
+		assert.match(result.content[0].text, item.error, "preserve the first failure");
+		assert.deepEqual(s.calls.map((call) => call.name), item.first ? [] : ["read"]);
+		assert.equal(result.details.writeAttempted, false);
+		assert.equal(readFileSync(join(s.cwd, "target.txt"), "utf8"), "old label\n");
+		assert.equal(readFileSync(join(s.cwd, "other.txt"), "utf8"), "other file\n");
+		assert.equal(s.host.requests.length, 1);
+	});
+});
+
+test("a batch failure preserves earlier writes but prevents subsequent writes", async (t) => {
+	const s = create(t);
+	s.host.setResult(() => toolsResponse(
+		call("write", { path: "target.txt", content: "partial work" }),
+		call("read", { path: "missing.txt" }),
+		call("write", { path: "target.txt", content: "must not overwrite partial work" }),
+	));
+	const result = await s.run();
+	assert.equal(result.isError, true);
+	assert.match(result.content[0].text, /已尝试写入.*不会自动回滚/);
+	assert.deepEqual(s.calls.map((call) => call.name), ["write", "read"]);
+	assert.equal(readFileSync(join(s.cwd, "target.txt"), "utf8"), "partial work");
+	assert.equal(s.host.requests.length, 1);
+});
+
 test("authentication errors and truncated/empty responses are failures, not silent model fallback", async (t) => {
 	for (const answer of [titleResponse("", "stop"), titleResponse("incomplete", "length"), { ...titleResponse("", "error"), errorMessage: "Authentication failed" }]) {
 		const s = create(t);

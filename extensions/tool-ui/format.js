@@ -64,6 +64,36 @@ export function callSummary(name, input) {
 	}
 }
 
+let toolCaches = new WeakMap();
+
+/** 原生 updateDisplay / invalidate 通知原地更新；重装补丁时清空旧缓存。 */
+export function invalidateToolCache(tool) {
+	if (tool === undefined) toolCaches = new WeakMap();
+	else toolCaches.delete(tool);
+}
+
+/** 仅缓存已完成结果，流式结果可能原地修改，不能只比较对象引用。 */
+export function getToolCache(tool) {
+	const result = tool.result;
+	if (!result || tool.isPartial) {
+		toolCaches.delete(tool);
+		return {};
+	}
+	let cache = toolCaches.get(tool);
+	if (!cache || cache.result !== result || cache.args !== tool.args || cache.toolName !== tool.toolName ||
+		cache.content !== result.content || cache.details !== result.details || cache.isError !== result.isError) {
+		cache = { result, args: tool.args, toolName: tool.toolName,
+			content: result.content, details: result.details, isError: result.isError };
+		toolCaches.set(tool, cache);
+	}
+	return cache;
+}
+
+export function toolOutputText(tool) {
+	const cache = getToolCache(tool);
+	return cache.text ??= outputText(tool.result, tool.toolName);
+}
+
 export function outputText(result, name) {
 	const blocks = (result?.content ?? []).filter((item) => item.type === "text").map((item) => item.text ?? "");
 	if (name === "codemode" && /^Script (?:completed|failed)\nWall time [\d.]+ seconds\nOutput:\n$/.test(blocks[0] ?? "")) blocks.shift();
@@ -89,7 +119,15 @@ export function status(tool) {
 }
 
 export function resultSummary(tool) {
-	const text = outputText(tool.result, tool.toolName);
+	const cache = getToolCache(tool);
+	if (cache.summary !== undefined) return cache.summary;
+	const text = cache.text ?? outputText(tool.result, tool.toolName);
+	// 折叠卡只保留短摘要，避免为全部历史输出常驻一份清理后的全文。
+	if (tool.expanded) cache.text = text;
+	return cache.summary = summarizeResult(tool, text);
+}
+
+function summarizeResult(tool, text) {
 	if (tool.result?.isError) return oneLine(text || "Tool failed");
 	const count = lineCount(text);
 	const images = (tool.result?.content ?? []).filter((item) => item.type === "image").length;

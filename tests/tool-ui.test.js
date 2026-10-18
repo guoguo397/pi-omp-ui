@@ -4,14 +4,16 @@ import { homedir } from "node:os";
 import { AssistantMessageComponent, ToolExecutionComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { installToolUi } from "../extensions/tool-ui/runtime.js";
-import { callSummary, displayPath, outputText, plain, resultSummary } from "../extensions/tool-ui/format.js";
+import { callSummary, displayPath, invalidateToolCache, outputText, plain, resultSummary } from "../extensions/tool-ui/format.js";
 import { diffStats, parseDiff, renderDiffRows } from "../extensions/tool-ui/diff.js";
+import * as themes from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 
 initTheme("dark");
 const theme = { fg: (_token, text) => text, bg: (_token, text) => text, bold: (text) => text };
 const originalRender = ToolExecutionComponent.prototype.render;
 const originalMouse = ToolExecutionComponent.prototype.handleMouse;
 const originalContainerRender = Container.prototype.render;
+const originalUpdateDisplay = ToolExecutionComponent.prototype.updateDisplay;
 let patch;
 afterEach(() => {
 	patch?.dispose();
@@ -19,6 +21,7 @@ afterEach(() => {
 	assert.equal(ToolExecutionComponent.prototype.render, originalRender);
 	assert.equal(ToolExecutionComponent.prototype.handleMouse, originalMouse);
 	assert.equal(Container.prototype.render, originalContainerRender);
+	assert.equal(ToolExecutionComponent.prototype.updateDisplay, originalUpdateDisplay);
 });
 
 function install(options = {}) {
@@ -227,6 +230,37 @@ test("legacy diff, insertions/deletions and truncated previews expand without lo
 	assert.equal(renderDiffRows(many, 80, theme, true).length, 40);
 });
 
+test("collapsed diffs paint only visible rows and preserve exact split/unified previews", () => {
+	for (const kinds of [
+		Array(200).fill("+"),
+		Array(200).fill("-"),
+		[...Array(100).fill("-"), ...Array(100).fill("+")],
+		Array.from({ length: 200 }, (_, i) => [" ", "-", "+", "+", "gap"][i % 5]),
+	]) {
+		let reads = 0;
+		const rows = kinds.map((kind, i) => ({
+			kind, old: kind === "+" ? undefined : i + 1, next: kind === "-" ? undefined : i + 1,
+			get text() { reads++; return `中文😀 row ${i}`; },
+		}));
+		for (const width of [80, 120]) {
+			reads = 0;
+			const preview = renderDiffRows(rows, width, theme);
+			assert.ok(reads <= 40, `width ${width} must not paint hidden rows: ${reads} text reads`);
+			const full = renderDiffRows(rows, width, theme, true);
+			assert.deepEqual(preview, [...full.slice(0, 20), `… ${full.length - 20} more rows`]);
+			for (const line of preview) assert.ok(visibleWidth(line) <= width);
+		}
+	}
+});
+
+test("diff previews do not report hidden rows at the exact height limit", () => {
+	for (const [width, count] of [[80, 20], [120, 19]]) {
+		const rows = Array.from({ length: count }, (_, i) => ({ kind: "+", next: i + 1, text: "new" }));
+		assert.equal(renderDiffRows(rows, width, theme).length, 20);
+		assert.deepEqual(renderDiffRows(rows, width, theme), renderDiffRows(rows, width, theme, true));
+	}
+});
+
 test("images stay available in expanded cards and unknown renderers remain native", () => {
 	install();
 	const value = tool("read", {}, { result: { content: [{ type: "image", mimeType: "image/png", data: "" }] } });
@@ -270,6 +304,159 @@ test("colored rendering remains within terminal columns at all tested widths", (
 		value.expanded = true;
 		for (const line of value.render(width)) assert.ok(visibleWidth(line) <= width);
 	}
+});
+
+test("completed summaries reuse cleaned output, while partial results stay live", () => {
+	let reads = 0;
+	let text = "one\ntwo";
+	const value = { toolName: "read", isPartial: false, result: {
+		content: [{ type: "text", get text() { reads++; return text; } }],
+	} };
+	assert.equal(resultSummary(value), "2 lines loaded");
+	assert.equal(resultSummary(value), "2 lines loaded");
+	assert.equal(reads, 1);
+	value.isPartial = true;
+	text += "\nthree";
+	assert.equal(resultSummary(value), "3 lines loaded");
+	text += "\nfour";
+	assert.equal(resultSummary(value), "4 lines loaded");
+	value.isPartial = false;
+	assert.equal(resultSummary(value), "4 lines loaded");
+	const previous = reads;
+	assert.equal(resultSummary(value), "4 lines loaded");
+	assert.equal(reads, previous);
+	text = "replaced";
+	invalidateToolCache(value);
+	assert.equal(resultSummary(value), "1 line loaded");
+});
+
+test("completed cards reuse layout and cleaned output across redraws and width changes", () => {
+	install();
+	let reads = 0;
+	const value = tool("read", { path: "example.txt" }, { result: {
+		content: [{ type: "text", get text() { reads++; return "one\ntwo\nthree"; } }],
+	} });
+	const first = value.render(120);
+	const previous = reads;
+	assert.equal(value.render(120), first, "unchanged cards reuse the rendered array");
+	assert.equal(value.render(120), first);
+	assert.equal(reads, previous, "redraws must not rescan output");
+	assert.notEqual(value.render(60), first, "width changes rebuild layout");
+	assert.equal(reads, previous, "width changes reuse width-independent output summaries");
+	value.setExpanded(true);
+	const beforeExpanded = reads;
+	const expanded = value.render(120);
+	const expandedReads = reads;
+	assert.equal(expandedReads, beforeExpanded + 1, "summary and expanded output share one cleanup pass");
+	assert.match(expanded.join("\n"), /Output[\s\S]*one/);
+	assert.equal(value.render(120), expanded);
+	assert.equal(reads, expandedReads, "expanded output is not rewrapped every frame");
+});
+
+test("native updates and invalidation refresh caches even when objects are reused", () => {
+	install();
+	const value = tool("read", { path: "old.txt" });
+	value.render(120);
+	value.args.path = "new.txt";
+	value.updateArgs(value.args);
+	assert.match(plainLines(value).join("\n"), /Read new\.txt/);
+	value.result.content[0].text = "changed";
+	value.updateResult(value.result);
+	assert.match(plainLines(value).join("\n"), /1 line loaded/);
+	value.result.content[0].text = "changed\nagain";
+	value.invalidate();
+	assert.match(plainLines(value).join("\n"), /2 lines loaded/);
+	const edit = tool("edit", {}, { result: { details: { patch: "@@ -1 +1 @@\n-old\n+new" } } });
+	assert.match(plainLines(edit).join("\n"), /diff \+1 −1/);
+	edit.result.details.patch += "\n+extra";
+	edit.updateResult(edit.result);
+	assert.match(plainLines(edit).join("\n"), /diff \+2 −1/);
+	const before = value.render(120);
+	value.setOutputPad(3);
+	assert.notEqual(value.render(120), before);
+	assert.ok(value.render(120)[1].startsWith("   "));
+	patch.dispose();
+	value.result.content[0].text = "after disposal";
+	value.updateResult(value.result);
+	install();
+	assert.match(plainLines(value).join("\n"), /1 line loaded/);
+});
+
+test("cached cards follow live hints and same-object theme color updates", () => {
+	let hint = "first hint";
+	let mode = "first mode";
+	const active = { ...theme, colors: {}, getColorMode: () => mode,
+		fg: (_token, text) => `${mode}:${text}`,
+	};
+	install({ theme: () => active, hint: () => hint });
+	const value = tool();
+	const first = value.render(160);
+	assert.equal(value.render(160), first);
+	hint = "updated hint";
+	assert.match(value.render(160).join("\n"), /updated hint/);
+	mode = "second mode";
+	assert.match(value.render(160).join("\n"), /second mode:/);
+	const before = value.render(160);
+	active.colors = {};
+	assert.notEqual(value.render(160), before, "terminal color updates may keep the same Theme instance");
+	active.fg = (_token, text) => `NEW:${text}`;
+	assert.match(value.render(160).join("\n"), /NEW:/);
+});
+
+test("real Theme terminal color updates invalidate cached cards without replacing the theme", () => {
+	install({ theme: () => themes.theme });
+	const value = tool();
+	try {
+		const active = themes.theme;
+		const first = value.render(120);
+		assert.equal(value.render(120), first);
+		themes.setTerminalColors({ background: { r: 20, g: 30, b: 40 } });
+		assert.equal(themes.theme, active);
+		assert.notEqual(value.render(120), first);
+		const dark = value.render(120);
+		initTheme("light");
+		assert.notDeepEqual(value.render(120), dark);
+	} finally {
+		themes.setTerminalColors({});
+		initTheme("dark");
+	}
+});
+
+test("running and partial cards keep animating and showing fresh output", (t) => {
+	install();
+	let now = 0;
+	t.mock.method(Date, "now", () => now);
+	const value = tool("read", {}, { pending: true });
+	const first = value.render(120).join("\n");
+	now = 90;
+	assert.notEqual(value.render(120).join("\n"), first);
+	const result = { content: [{ type: "text", text: "one" }] };
+	value.updateResult(result, true);
+	assert.match(plainLines(value).join("\n"), /1 line loaded/);
+	result.content[0].text += "\ntwo";
+	assert.match(plainLines(value).join("\n"), /2 lines loaded/);
+	value.updateResult(result);
+	const finished = value.render(120);
+	now = 180;
+	assert.equal(value.render(120), finished);
+	assert.match(finished.join("\n"), /✓ Read/);
+});
+
+test("cached text never freezes native images or unfinished nested-call spinners", (t) => {
+	install();
+	const image = tool();
+	image.expanded = true;
+	image.showImages = true;
+	let frame = 0;
+	image.imageComponents = [{ render: () => [`image frame ${++frame}`] }];
+	assert.match(image.render(120).join("\n"), /image frame 1/);
+	assert.match(image.render(120).join("\n"), /image frame 2/);
+	let now = 0;
+	t.mock.method(Date, "now", () => now);
+	const code = tool("codemode", {}, { result: { details: { calls: [{ name: "read", args: {}, status: "running" }] } } });
+	const first = code.render(120).join("\n");
+	now = 90;
+	assert.notEqual(code.render(120).join("\n"), first);
 });
 
 test("theme changes are reflected without retaining pre-colored strings", () => {
