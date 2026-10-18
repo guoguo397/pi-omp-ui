@@ -68,6 +68,26 @@ export function collectToolUsage(entries = []) {
 	return { total, counts, incomplete };
 }
 
+/** 本轮成功响应的加权平均输出速率；使用 Pi 原生请求耗时，不混入工具或调用间等待。 */
+export function collectOutputSpeed(entries = []) {
+	let output = 0;
+	let durationMs = 0;
+	for (const entry of entries) {
+		if (entry.type !== "message" || entry.message?.role !== "assistant") continue;
+		const message = entry.message;
+		// 失败、取消及尚未完成的响应不参与统计；工具内嵌模型用量也不混入。
+		if (!["stop", "length", "toolUse"].includes(message.stopReason)) continue;
+		const count = message.usage?.output;
+		const duration = message.durationMs;
+		// 任一成功调用缺少用量或计时，整轮隐藏，不能把部分调用冒充本轮平均值。
+		if (!Number.isFinite(count) || count < 0 || !Number.isFinite(duration) || duration <= 0) return undefined;
+		output += count;
+		durationMs += duration;
+	}
+	const speed = output / (durationMs / 1000);
+	return Number.isFinite(speed) && speed > 0 ? speed : undefined;
+}
+
 /** 纯渲染函数：主题颜色在每次 render 时重新计算，有调用记录时追加工具汇总行。 */
 export function renderClaudeFooter(view, width, theme) {
 	const columns = Math.max(0, Math.floor(width));
@@ -103,6 +123,9 @@ export function renderClaudeFooter(view, width, theme) {
 	if (view.usage) {
 		const usage = view.usage;
 		status.push(fg("dim", `↑${tokens(usage.input + usage.cacheRead + usage.cacheWrite)} ↓${tokens(usage.output)}`));
+		if (!view.busy && Number.isFinite(view.outputSpeed) && view.outputSpeed > 0) {
+			status.push(fg("dim", `${view.outputSpeed.toFixed(1)} tok/s`));
+		}
 		if (usage.cost > 0) status.push(fg("dim", `$${usage.cost.toFixed(4)}`));
 	}
 	// 不猜测子代理数或权限模式，原样保留其他扩展通过 setStatus 提供的内容。
@@ -175,6 +198,7 @@ export function registerFooterIcon(pi) {
 	let startedAt = Date.now();
 	let busy = false;
 	let toolStart;
+	let outputSpeed;
 	let activeContext;
 
 	const stop = () => {
@@ -186,7 +210,7 @@ export function registerFooterIcon(pi) {
 		if (ctx.mode !== "tui" || !enabled || patch) return;
 		activeContext = ctx;
 		patch = installFooterPatch(
-			() => ({ elapsedMs: Date.now() - startedAt, busy, toolStart }),
+			() => ({ elapsedMs: Date.now() - startedAt, busy, toolStart, outputSpeed }),
 			() => activeContext.ui.theme,
 		);
 	};
@@ -196,19 +220,29 @@ export function registerFooterIcon(pi) {
 		startedAt = Date.now();
 		busy = false;
 		toolStart = undefined;
+		outputSpeed = undefined;
 		start(ctx);
 	});
 	pi.on("before_agent_start", (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
 		busy = true;
-		// 与顶边本轮耗时使用同一开始事件；只统计此后保存的工具结果。
+		outputSpeed = undefined;
+		// 与顶边本轮耗时使用同一开始事件；只统计此后保存的工具结果及模型响应。
 		toolStart = ctx.sessionManager.getEntryCount?.() ?? ctx.sessionManager.getEntries().length;
 	});
 	// 等到重试、压缩和后续排队任务全部结束，不在中间 agent_end 显示 ready。
 	pi.on("agent_settled", (_event, ctx) => {
-		if (ctx.mode === "tui") busy = false;
+		if (ctx.mode !== "tui" || !busy) return;
+		busy = false;
+		const entries = ctx.sessionManager.getEntries?.();
+		outputSpeed = toolStart === undefined || !entries ? undefined : collectOutputSpeed(entries.slice(toolStart));
 	});
-	pi.on("session_shutdown", () => { stop(); });
+	pi.on("session_shutdown", () => {
+		busy = false;
+		toolStart = undefined;
+		outputSpeed = undefined;
+		stop();
+	});
 
 	pi.registerCommand("omp-footer", {
 		description: "Toggle the Claude Code-style status bar (on|off|status)",

@@ -7,7 +7,7 @@ import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
 const directory = mkdtempSync(join(tmpdir(), "omp-footer-icon-"));
 process.env.PI_CODING_AGENT_DIR = directory;
-const { registerFooterIcon, renderClaudeFooter, countMcpServers, collectToolUsage } = await import("../extensions/lib/footer-icon.js");
+const { registerFooterIcon, renderClaudeFooter, countMcpServers, collectToolUsage, collectOutputSpeed } = await import("../extensions/lib/footer-icon.js");
 const { readSettings, SETTINGS_PATH } = await import("../extensions/lib/settings.js");
 const { FooterComponent } = await import("@earendil-works/pi-coding-agent");
 const originalRender = FooterComponent.prototype.render;
@@ -135,6 +135,49 @@ test("incomplete native nested records are shown as a lower bound", () => {
 	} }]);
 	assert.equal(toolUsage.incomplete, true);
 	assert.match(renderClaudeFooter({ ...view, toolUsage }, 120, plainTheme)[4], /^Tools ≥2/);
+});
+
+function response(output, durationMs, stopReason = "stop") {
+	return { type: "message", message: { role: "assistant", usage: { output }, durationMs, stopReason } };
+}
+
+test("output speed weights successful response durations, excluding tools, failures and deferred work", () => {
+	assert.equal(collectOutputSpeed([
+		response(100, 1000, "toolUse"), response(300, 9000, "length"),
+		response(999, 50_000, "error"), response(999, 50_000, "aborted"),
+		response(999, 50_000, "pending"), response(999, undefined, "deferred"),
+		{ type: "message", message: { role: "toolResult", usage: { output: 999 }, durationMs: 50_000 } },
+		{ type: "compaction" }, { type: "message", message: { role: "user" } },
+	]), 40, "use total tokens / total duration, not the mean of individual speeds");
+	assert.equal(collectOutputSpeed([response(100, 1000), response(0, 1000)]), 50);
+	assert.equal(collectOutputSpeed([response(426, 10_000)]), 42.6);
+});
+
+test("output speed hides missing or invalid data rather than showing a partial average", () => {
+	assert.equal(collectOutputSpeed(), undefined);
+	assert.equal(collectOutputSpeed([response(0, 1000)]), undefined);
+	for (const output of [undefined, null, NaN, Infinity, -1, "100"]) {
+		assert.equal(collectOutputSpeed([response(100, 1000), response(output, 1000)]), undefined);
+	}
+	for (const duration of [undefined, null, NaN, Infinity, -1, 0, "1000"]) {
+		assert.equal(collectOutputSpeed([response(100, 1000), response(100, duration)]), undefined);
+	}
+});
+
+test("output speed sits between output usage and cost without adding a row", () => {
+	const lines = renderClaudeFooter({ ...view, outputSpeed: 42.64 }, 120, plainTheme);
+	assert.equal(lines.length, 4);
+	assert.equal(lines[3], "▶ ready · thinking high · ↑3.5k ↓200 · 42.6 tok/s · $0.0123 · ← 2 agents");
+	for (const outputSpeed of [undefined, null, NaN, Infinity, -1, 0]) {
+		assert.doesNotMatch(renderClaudeFooter({ ...view, outputSpeed }, 120, plainTheme)[3], /tok\/s/);
+	}
+	assert.doesNotMatch(renderClaudeFooter({ ...view, outputSpeed: 42.6, busy: true }, 120, plainTheme)[3], /tok\/s/);
+	const theme = { fg: (_token, text) => `\x1b[32m${text}\x1b[0m` };
+	for (let width = 0; width <= 120; width++) {
+		for (const line of renderClaudeFooter({ ...view, outputSpeed: 42.6 }, width, theme)) {
+			assert.ok(visibleWidth(line) <= width);
+		}
+	}
 });
 
 test("MCP count deduplicates namespaces and excludes hidden tools", () => {
@@ -267,6 +310,56 @@ test("tool summary resets each run, retains settled results and avoids per-frame
 	} finally { await session.emit("session_shutdown"); }
 });
 
+test("output speed appears only on settlement, stays stable and resets across runs and sessions", async () => {
+	const session = create();
+	const entries = [response(1000, 1000)];
+	let scans = 0;
+	const manager = {
+		getCwd: () => "/repo", getEntryCount: () => entries.length,
+		getEntries: () => { scans++; return entries; },
+	};
+	session.ctx.sessionManager = manager;
+	const footer = new FooterComponent({ state: {}, sessionManager: manager }, {
+		getGitBranch: () => null, getExtensionStatuses: () => new Map(),
+	});
+	// Keep native usage independent: the speed must not use the cumulative output total.
+	footer.getSessionStats = () => ({ usageTotals: view.usage });
+	const line = () => footer.render(120)[3];
+	try {
+		await session.emit("session_start");
+		await session.emit("agent_settled");
+		assert.doesNotMatch(line(), /tok\/s/, "history and idle settlement do not create speed");
+		await session.emit("before_agent_start");
+		entries.push(response(100, 1000, "toolUse"));
+		assert.doesNotMatch(line(), /tok\/s/, "no intermediate speed while working");
+		await session.emit("agent_end");
+		entries.push(response(999, 60_000, "error"), response(326, 9000));
+		assert.doesNotMatch(line(), /tok\/s/, "retries and continuations must settle first");
+		const previous = scans;
+		await session.emit("agent_settled");
+		assert.equal(scans, previous + 1, "speed is collected once at settlement");
+		assert.match(line(), /↓200 · 42\.6 tok\/s · \$/);
+		entries.push(response(999, 1000));
+		assert.match(line(), /42\.6 tok\/s/, "later entries do not change the finalized speed");
+		await session.emit("agent_settled");
+		assert.match(line(), /42\.6 tok\/s/, "duplicate settlement does not recalculate");
+		await session.commands.get("omp-footer").handler("off", session.ctx);
+		await session.commands.get("omp-footer").handler("on", session.ctx);
+		assert.match(line(), /42\.6 tok\/s/, "toggle retains the last result");
+		await session.emit("before_agent_start");
+		assert.doesNotMatch(line(), /tok\/s/);
+		entries.push(response(50, undefined));
+		await session.emit("agent_settled");
+		assert.doesNotMatch(line(), /tok\/s/, "missing native timing hides speed");
+		await session.emit("before_agent_start");
+		entries.push(response(100, 1000));
+		await session.emit("agent_settled");
+		assert.match(line(), /100\.0 tok\/s/);
+		await session.emit("session_start");
+		assert.doesNotMatch(line(), /tok\/s/, "reload or session switch clears speed");
+	} finally { await session.emit("session_shutdown"); }
+});
+
 test("patch wraps the built-in footer only when enabled and restores on shutdown", async () => {
 	const session = create();
 	await session.emit("session_start");
@@ -294,6 +387,9 @@ test("disabled setting stays native across sessions and non-TUI modes never patc
 	for (const mode of ["rpc", "json", "print"]) {
 		const nonTui = create(mode);
 		await nonTui.emit("session_start");
+		nonTui.ctx.sessionManager = { getEntries() { throw new Error("non-TUI must not read speed data"); } };
+		await nonTui.emit("before_agent_start");
+		await nonTui.emit("agent_settled");
 		assert.equal(FooterComponent.prototype.render, originalRender);
 		await nonTui.emit("session_shutdown");
 	}
