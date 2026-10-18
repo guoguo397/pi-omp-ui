@@ -121,8 +121,10 @@ export function registerFlash(pi, { getMode }) {
 							return ctx.modelRegistry.streamSimple(selectedModel, context, { ...options, maxTokens: 4096 });
 						},
 						finishTurn({ toolResults }) {
-							failure = toolResults.find((result) => result.isError)?.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
-							if (failure) return { action: "end" };
+							const failed = toolResults.find((result) => result.isError);
+							if (!failed) return;
+							failure = failed.content.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim() || "flash 工具执行失败（未提供错误文本）";
+							return { action: "end" };
 						},
 					});
 					agent.subscribe((event) => {

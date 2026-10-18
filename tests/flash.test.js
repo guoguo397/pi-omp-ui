@@ -197,6 +197,19 @@ test("nested permission denial is preserved and stops the worker", async (t) => 
 	assert.equal(readFileSync(join(s.cwd, "target.txt"), "utf8"), "old label\n");
 });
 
+test("tool errors without meaningful text stop the worker and use a fallback message", async (t) => {
+	for (const content of [[], [{ type: "text", text: "" }], [{ type: "text", text: " \n\t" }], [{ type: "image", data: "AA==", mimeType: "image/png" }]]) {
+		const s = create(t);
+		s.ctx.executeTool = async () => ({ isError: true, content, details: undefined });
+		let round = 0;
+		s.host.setResult(() => round++ === 0 ? toolsResponse(call("read", { path: "target.txt" })) : titleResponse("不应继续执行。"));
+		const result = await s.run();
+		assert.equal(result.isError, true);
+		assert.match(result.content[0].text, /工具执行失败.*未提供错误文本/);
+		assert.equal(s.host.requests.length, 1, "a tool error stops the worker regardless of its content");
+	}
+});
+
 test("authentication errors and truncated/empty responses are failures, not silent model fallback", async (t) => {
 	for (const answer of [titleResponse("", "stop"), titleResponse("incomplete", "length"), { ...titleResponse("", "error"), errorMessage: "Authentication failed" }]) {
 		const s = create(t);
