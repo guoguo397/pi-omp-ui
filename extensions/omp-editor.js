@@ -3,6 +3,7 @@ import { registerAutoTitle } from "./lib/auto-title.js";
 import { registerDone } from "./lib/done.js";
 import { registerFooterIcon } from "./lib/footer-icon.js";
 import { registerInteractionMode } from "./lib/interaction-mode.js";
+import { TITLE_AGENT_NAME } from "./lib/title-agent.js";
 import { registerUserMessageStyle } from "./lib/user-message.js";
 import { registerToolUi } from "./tool-ui/extension.js";
 
@@ -11,7 +12,7 @@ export { OmpEditor };
 export default function ompEditorExtension(pi) {
 	registerToolUi(pi);
 	const interactionMode = registerInteractionMode(pi);
-	registerFooterIcon(pi, interactionMode);
+	const footer = registerFooterIcon(pi, interactionMode);
 	registerUserMessageStyle(pi);
 	let previousFactory;
 	let deferredInstall;
@@ -29,7 +30,10 @@ export default function ompEditorExtension(pi) {
 		});
 	};
 	const isActive = (ctx) => ctx.ui.getEditorComponent() === factory;
-	registerAutoTitle(pi, { onUpdate: () => activeTui?.requestRender() });
+	registerAutoTitle(pi, {
+		onUpdate: () => activeTui?.requestRender(),
+		onInvoke: (ctx) => footer?.recordAgent(ctx.sessionManager.getSessionId?.(), TITLE_AGENT_NAME),
+	});
 
 	registerDone(pi, {
 		onUpdate(message, ctx) {

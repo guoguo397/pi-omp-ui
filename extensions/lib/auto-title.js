@@ -37,7 +37,7 @@ export function buildTitleContext(entries) {
 }
 
 /** 首轮正常交互结束后，调度标题专用子 agent；已有名称永不覆盖。 */
-export function registerAutoTitle(pi, { onUpdate = () => {} } = {}) {
+export function registerAutoTitle(pi, { onUpdate = () => {}, onInvoke = () => {} } = {}) {
 	let pendingInput = false;
 	let request;
 	let warned = false;
@@ -64,6 +64,8 @@ export function registerAutoTitle(pi, { onUpdate = () => {} } = {}) {
 		if (!text) return;
 		const job = { controller: new AbortController(), sessionId: ctx.sessionManager.getSessionId() };
 		request = job;
+		// 子 agent 不产生会话条目，在请求开始时上报，供状态栏累计会话用量。
+		onInvoke(ctx);
 		job.timeout = setTimeout(() => job.controller.abort(), TITLE_TIMEOUT_MS);
 		job.timeout.unref?.();
 

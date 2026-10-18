@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
-const { registerFooterIcon, renderClaudeFooter, countMcpServers, collectToolUsage, collectOutputSpeed } = await import("../extensions/lib/footer-icon.js");
+const { registerFooterIcon, renderClaudeFooter, countMcpServers, collectToolUsage, collectOutputSpeed, collectSessionUsage } = await import("../extensions/lib/footer-icon.js");
 const { FooterComponent } = await import("@earendil-works/pi-coding-agent");
 const originalRender = FooterComponent.prototype.render;
 after(() => {
@@ -17,12 +17,12 @@ function create(mode = "tui", options) {
 		theme: { fg: (_token, text) => text },
 		notify: (message, level) => notifications.push({ message, level }),
 	} };
-	registerFooterIcon({
+	const footerApi = registerFooterIcon({
 		on: (name, handler) => handlers.set(name, handler),
 		registerCommand: (name, command) => commands.set(name, command),
 	}, options);
 	return {
-		ctx, commands, notifications,
+		ctx, commands, notifications, footerApi,
 		emit: async (name) => handlers.get(name)?.({}, ctx),
 	};
 }
@@ -81,7 +81,7 @@ test("missing model, resources and git do not invent Claude-specific information
 	assert.match(lines[0], /^\[no-model\] \| \/ \| ⏱ 1m$/);
 	assert.equal(lines[2], "0 context files | 0 MCPs");
 	assert.equal(lines[3], "▶ ready");
-	assert.doesNotMatch(lines.join("\n"), /auto mode|shift\+tab|agents/);
+	assert.doesNotMatch(lines.join("\n"), /auto mode|shift\+tab|agents/i);
 	assert.match(renderClaudeFooter({ ...view, contextFiles: [{ path: "/a/CLAUDE.md" }] }, 120, plainTheme)[2], /1 CLAUDE.md/);
 });
 
@@ -193,6 +193,87 @@ test("output speed sits between output usage and cost without adding a row", () 
 			assert.ok(visibleWidth(line) <= width);
 		}
 	}
+});
+
+test("session usage collects skills and sub-agents from entries without double counting", () => {
+	const entries = [
+		{ type: "message", message: { role: "assistant", content: [
+			{ type: "text", text: "..." },
+			{ type: "toolCall", name: "read", arguments: { path: "C:/Users/hy/.agents/skills/agently-mail/SKILL.md" } },
+			{ type: "toolCall", name: "read", arguments: { path: "/repo/docs/guide.md" } },
+			{ type: "toolCall", name: "read", arguments: { path: "/repo/SKILL.md" } },
+			{ type: "toolCall", name: "read", arguments: {} },
+			{ type: "toolCall", name: "subagent", arguments: { task: "x" } },
+		] } },
+		{ type: "message", message: { role: "toolResult", toolName: "read" } },
+		{ type: "message", message: { role: "user", content: "/skill:pdf-tools 提取表格" } },
+		{ type: "message", message: { role: "user", content: [{ type: "text", text: "/skill:agently-mail 回复" }] } },
+		{ type: "message", message: { role: "user", content: "普通输入 /skill:not-a-command" } },
+		{ type: "message", message: { role: "assistant", content: [
+			{ type: "toolCall", name: "read", arguments: { path: "~/.agents/skills/agently-mail\\SKILL.md" } },
+		] } },
+		{ type: "compaction" },
+	];
+	const usage = collectSessionUsage(entries);
+	assert.deepEqual([...usage.skills], [["agently-mail", 3], ["repo", 1], ["pdf-tools", 1]]);
+	assert.deepEqual([...usage.agents], [["subagent", 1]]);
+	assert.deepEqual(collectSessionUsage(), { skills: new Map(), agents: new Map() });
+});
+
+test("agents and skills sit after MCPs on the resources line only when used", () => {
+	const lines = renderClaudeFooter({ ...view,
+		agents: new Map([["titler", 2], ["subagent", 1]]),
+		skills: new Map([["agently-mail", 1]]),
+	}, 160, plainTheme);
+	assert.equal(lines.length, 4);
+	assert.equal(lines[2], "2 AGENTS.md | 2 MCPs | Agents titler ×2 · subagent | Skills agently-mail");
+	assert.equal(renderClaudeFooter(view, 120, plainTheme)[2], "2 AGENTS.md | 2 MCPs");
+	const dirty = renderClaudeFooter({ ...view, agents: new Map([["bad\n\x1b[31mname", 1]]) }, 160, plainTheme)[2];
+	assert.match(dirty, /Agents bad name$/);
+	const theme = { fg: (_token, text) => `\x1b[32m${text}\x1b[0m` };
+	const wide = { ...view, agents: new Map([["标题代理🦊", 3]]), skills: new Map([["邮件", 1]]) };
+	for (let width = 0; width <= 120; width++) {
+		for (const line of renderClaudeFooter(wide, width, theme)) {
+			assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
+		}
+	}
+});
+
+test("patched footer shows scanned skills and recorded in-process agents per session", async () => {
+	const session = create();
+	let sessionId = "one";
+	const entries = [{ type: "message", message: { role: "assistant", content: [
+		{ type: "toolCall", name: "read", arguments: { path: "/skills/agently-mail/SKILL.md" } },
+	] } }];
+	const agent = {
+		state: { model: { id: "test" } },
+		sessionManager: {
+			getCwd: () => "/repo", getEntryCount: () => entries.length,
+			getSessionId: () => sessionId, getEntries: () => entries,
+		},
+	};
+	session.ctx.sessionManager = agent.sessionManager;
+	const footer = new FooterComponent(agent, {
+		getGitBranch: () => null, getExtensionStatuses: () => new Map(),
+	});
+	footer.getSessionStats = () => ({ usageTotals: view.usage });
+	try {
+		await session.emit("session_start");
+		assert.equal(footer.render(160)[2], "0 context files | 0 MCPs | Skills agently-mail");
+		session.footerApi.recordAgent(sessionId, "titler");
+		session.footerApi.recordAgent(sessionId, "titler");
+		assert.equal(footer.render(160)[2], "0 context files | 0 MCPs | Agents titler ×2 | Skills agently-mail");
+		session.footerApi.recordAgent("other-session", "titler");
+		assert.equal(footer.render(160)[2], "0 context files | 0 MCPs | Agents titler ×2 | Skills agently-mail",
+			"other sessions' agents must not leak into this one");
+		session.footerApi.recordAgent();
+		session.footerApi.recordAgent(sessionId, "");
+		await session.emit("session_start");
+		assert.match(footer.render(160)[2], /Agents titler ×2/, "reload keeps same-session records");
+		sessionId = "two";
+		await session.emit("session_start");
+		assert.equal(footer.render(160)[2], "0 context files | 0 MCPs | Skills agently-mail");
+	} finally { await session.emit("session_shutdown"); }
 });
 
 test("MCP count deduplicates namespaces and excludes hidden tools", () => {

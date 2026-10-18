@@ -47,6 +47,46 @@ export function countMcpServers(tools = []) {
 	return servers.size;
 }
 
+/** 从 SKILL.md 路径取技能名；独立 Markdown 技能无目录名，不误判。 */
+function skillNameFromPath(path) {
+	if (typeof path !== "string") return undefined;
+	const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+	return /\/([^/]+)\/SKILL\.md$/i.exec(normalized)?.[1];
+}
+
+const SUB_AGENT_TOOL = /sub_?agent/i;
+const SKILL_COMMAND = /^\/skill:([a-z0-9][a-z0-9-]*)/i;
+
+/**
+ * 会话累计的子 agent 与技能调用：技能来自模型读取 SKILL.md 及 /skill: 命令，
+ * 子 agent 来自名称匹配的子代理工具；进程内子 agent（如 titler）由 recordAgent 补充。
+ */
+export function collectSessionUsage(entries = []) {
+	const skills = new Map();
+	const agents = new Map();
+	const add = (map, name) => {
+		if (typeof name === "string" && name) map.set(name, (map.get(name) ?? 0) + 1);
+	};
+	for (const entry of entries) {
+		if (entry.type !== "message") continue;
+		const message = entry.message;
+		if (message?.role === "assistant") {
+			for (const part of message.content ?? []) {
+				if (part?.type !== "toolCall") continue;
+				const name = String(part.name ?? "");
+				if (/^read$/i.test(name)) add(skills, skillNameFromPath(part.arguments?.path));
+				else if (SUB_AGENT_TOOL.test(name)) add(agents, name);
+			}
+		} else if (message?.role === "user") {
+			const content = message.content;
+			const text = typeof content === "string" ? content : (content ?? [])
+				.filter((part) => part?.type === "text").map((part) => part.text).join("\n");
+			add(skills, SKILL_COMMAND.exec(text.trim())?.[1]);
+		}
+	}
+	return { skills, agents };
+}
+
 /** 按已保存的工具结果累计调用，避免把 assistant 的请求和结果重复计算。 */
 export function collectToolUsage(entries = []) {
 	const counts = new Map();
@@ -119,7 +159,15 @@ export function renderClaudeFooter(view, width, theme) {
 		counts.set(name, (counts.get(name) ?? 0) + 1);
 	}
 	const files = [...counts].map(([name, count]) => `${count} ${name}`).join(" · ") || "0 context files";
-	const resources = fg("dim", files) + separator + fg("dim", `${view.mcpCount ?? 0} MCPs`);
+	const resources = [fg("dim", files), fg("dim", `${view.mcpCount ?? 0} MCPs`)];
+	// 外部名称统一走单行清理，次数只在重复调用时标注。
+	const nameList = (map) => [...(map ?? [])]
+		.map(([name, count]) => count > 1 ? `${singleLine(name)} ×${count}` : singleLine(name))
+		.filter(Boolean).join(" · ");
+	const agents = nameList(view.agents);
+	const skills = nameList(view.skills);
+	if (agents) resources.push(fg("dim", `Agents ${agents}`));
+	if (skills) resources.push(fg("dim", `Skills ${skills}`));
 
 	// 运行进度由输入框显示，底部不再重复 working；空闲及压缩状态仍保留。
 	const state = view.compacting ? "compacting" : view.busy ? "" : "ready";
@@ -143,7 +191,7 @@ export function renderClaudeFooter(view, width, theme) {
 		// 插件状态允许保留颜色，但不允许换行。
 		status.push(String(value).replace(/[\r\n\t]/g, " "));
 	}
-	const lines = [header, context, resources];
+	const lines = [header, context, resources.join(separator)];
 	if (view.toolUsage?.total > 0) {
 		const usage = view.toolUsage;
 		const tools = [...usage.counts].sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
@@ -164,6 +212,7 @@ function installFooterPatch(getView, getTheme) {
 	const originalRender = prototype.render;
 	const state = { active: true };
 	const toolUsageCache = new WeakMap();
+	const sessionUsageCache = new WeakMap();
 	const render = function (width) {
 		// 内部接口变化时安全回退，避免状态栏阻断整个 TUI 渲染。
 		if (!state.active || !this.session || !this.footerData || typeof this.getSessionStats !== "function") {
@@ -179,6 +228,10 @@ function installFooterPatch(getView, getTheme) {
 			toolUsageCache.set(stats, { start: view.toolStart, usage: collectToolUsage(entries) });
 		}
 		const model = session.routedModel?.model ?? session.state.model;
+		// 技能与子 agent 为会话累计值，与本轮工具统计共用 stats 失效时机。
+		if (!sessionUsageCache.has(stats)) {
+			sessionUsageCache.set(stats, collectSessionUsage(session.sessionManager.getEntries?.() ?? []));
+		}
 		return renderClaudeFooter({
 			...view,
 			modelName: model?.name || model?.id,
@@ -191,6 +244,8 @@ function installFooterPatch(getView, getTheme) {
 			compacting: session.isCompacting,
 			usage: usageTotals,
 			toolUsage: toolUsageCache.get(stats).usage,
+			agents: view.mergeAgents?.(sessionUsageCache.get(stats).agents) ?? sessionUsageCache.get(stats).agents,
+			skills: sessionUsageCache.get(stats).skills,
 			statuses: this.footerData.getExtensionStatuses(),
 		}, width, getTheme());
 	};
@@ -214,6 +269,8 @@ export function registerFooterIcon(pi, { getMode = () => undefined } = {}) {
 	let toolStart;
 	let outputSpeed;
 	let activeContext;
+	// 进程内子 agent 不产生会话条目，按会话 ID 记录，重载后仍随会话保留。
+	const recordedAgents = new Map();
 
 	const stop = () => {
 		patch?.dispose();
@@ -224,7 +281,17 @@ export function registerFooterIcon(pi, { getMode = () => undefined } = {}) {
 		if (ctx.mode !== "tui" || patch) return;
 		activeContext = ctx;
 		patch = installFooterPatch(
-			() => ({ elapsedMs: Date.now() - startedAt, busy, toolStart, outputSpeed, interactionMode: getMode() }),
+			() => ({
+				elapsedMs: Date.now() - startedAt, busy, toolStart, outputSpeed,
+				interactionMode: getMode(),
+				mergeAgents: (scanned) => {
+					const recorded = recordedAgents.get(ctx.sessionManager.getSessionId?.() ?? "");
+					if (!recorded?.size) return scanned;
+					const merged = new Map(scanned);
+					for (const [name, count] of recorded) merged.set(name, (merged.get(name) ?? 0) + count);
+					return merged;
+				},
+			}),
 			() => activeContext.ui.theme,
 		);
 	};
@@ -257,4 +324,18 @@ export function registerFooterIcon(pi, { getMode = () => undefined } = {}) {
 		outputSpeed = undefined;
 		stop();
 	});
+
+	return {
+		/** 记录会话内不产生条目的子 agent 调用；会话数设上限，避免长进程累积。 */
+		recordAgent(sessionId, name) {
+			if (typeof name !== "string" || !name) return;
+			const key = String(sessionId ?? "");
+			if (!recordedAgents.has(key)) {
+				if (recordedAgents.size >= 32) recordedAgents.delete(recordedAgents.keys().next().value);
+				recordedAgents.set(key, new Map());
+			}
+			const counts = recordedAgents.get(key);
+			counts.set(name, (counts.get(name) ?? 0) + 1);
+		},
+	};
 }

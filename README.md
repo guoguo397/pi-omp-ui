@@ -82,7 +82,7 @@ pi install git:github.com/guoguo397/pi-omp-ui@v2.0.0
 
 [Opus 5.5] | act git:(master) | ⏱ <1m
 Context ████░░░░░░░░░░░░ 25%
-2 AGENTS.md | 2 MCPs
+2 AGENTS.md | 2 MCPs | Agents titler | Skills agently-mail
 ✓ Read ×5 | ✓ PowerShell ×4 | ✓ Edit ×3
 ⏵⏵ accept edits on (shift+tab to cycle) · thinking high · ↑3.5k ↓200 · 42.6 tok/s · $0.0123
 ```
@@ -100,6 +100,7 @@ Context ████░░░░░░░░░░░░ 25%
 
 - 状态栏读取真实会话数据。Context 未知时显示 `?%`；MCP 数为提供可访问工具的命名空间数，不是配置总数。
 - 输入 / 输出用量为会话累计值，输入包含缓存读写，费用为零时隐藏。`Working` 只在输入框显示，底部不重复。
+- 资源行在 MCP 数后显示会话累计的子 agent 与技能调用（`Agents titler ×2 | Skills agently-mail`），同名重复调用标注次数，无记录时不占位。技能按模型读取 `SKILL.md` 的父目录名及 `/skill:` 命令统计；子 agent 包含名称匹配的子代理工具，以及本扩展不产生会话条目的 `titler`（按会话记录，`/reload` 后仍保留，历史会话中上一进程的记录不恢复）。
 - 保留其他插件状态。执行 / 计划是本扩展的两态工作流，不模拟 Claude Code 的完整权限系统，也不虚构代理数。
 - 支持主题配色和窄屏截断；其他扩展替换状态栏时不干扰对方。
 
