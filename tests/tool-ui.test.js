@@ -64,11 +64,13 @@ test("groups are render-only projections and preserve native tool traversal", ()
 	const assistant = new AssistantMessageComponent();
 	for (const value of [a, spacer, assistant, b]) container.addChild(value);
 	const originalChildren = [...container.children];
-	assert.match(plainLines(container).join("\n"), /Multiple Tools: 2 done · Read×1, Ls×1/);
+	assert.equal(plainLines(container)[1].trim(), "● Multiple Tools (2) · click to show more");
+	assert.doesNotMatch(plainLines(container).join("\n"), /Read×|Ls×/);
 	assert.match(plainLines(container).join("\n"), /├ ✓ Read[\s\S]*└ ✓ Ls/);
 	assert.deepEqual(container.children, originalChildren);
 	assert.equal(click(container, 1).handled, true);
 	assert.ok(a.expanded && b.expanded);
+	assert.equal(plainLines(container)[1].trim(), "● Multiple Tools (2) · click to collapse");
 	assert.match(plainLines(container).join("\n"), /Output/);
 	// Pi 的原生 Ctrl+O 逐个 setExpanded；不需要认识虚拟分组。
 	for (const value of container.children) if (value instanceof ToolExecutionComponent) value.setExpanded(false);
@@ -99,7 +101,7 @@ test("assistant text, unknown custom tools, edit and write are grouping boundari
 	for (const boundary of [new Text("Visible assistant text", 0, 0), tool("edit"), tool("write"), tool("custom")]) {
 		const container = new Container();
 		container.addChild(tool()); container.addChild(boundary); container.addChild(tool());
-		assert.doesNotMatch(plainLines(container).join("\n"), /Multiple Tools:|Read: 2 done/);
+		assert.doesNotMatch(plainLines(container).join("\n"), /Multiple Tools \(|Read \(2\)/);
 	}
 });
 
@@ -108,9 +110,9 @@ test("dynamic assistant visibility breaks a previously projected group", () => {
 	const container = new Container();
 	const assistant = new AssistantMessageComponent();
 	container.addChild(tool()); container.addChild(assistant); container.addChild(tool());
-	assert.match(plainLines(container).join("\n"), /Read: 2 done/);
+	assert.match(plainLines(container).join("\n"), /Read \(2\)/);
 	assistant.contentContainer.addChild(new Text("New text", 0, 0));
-	assert.doesNotMatch(plainLines(container).join("\n"), /Read: 2 done/);
+	assert.doesNotMatch(plainLines(container).join("\n"), /Read \(2\)/);
 });
 
 test("pending, failed, cancelled nested calls and codemode summaries", () => {
@@ -119,7 +121,8 @@ test("pending, failed, cancelled nested calls and codemode summaries", () => {
 	const pending = tool("ls", {}, { pending: true });
 	const failed = tool("grep", {}, { result: { isError: true, content: [{ type: "text", text: "Permission denied" }] } });
 	container.addChild(pending); container.addChild(failed);
-	assert.match(plainLines(container).join("\n"), /1 running · 1 failed/);
+	assert.equal(plainLines(container)[1].trim(), "● Multiple Tools (2) · 1 running · 1 failed · click to show more");
+	assert.doesNotMatch(plainLines(container)[1], /Ls×|Grep×/);
 	const code = tool("codemode", { code: "await tools.read({path:'test'});" }, { result: {
 		content: [{ type: "text", text: "Script completed\nWall time 1.2 seconds\nOutput:\n" }, { type: "text", text: "hello\nworld" }],
 		details: { calls: [{ name: "read", args: '{"path":"test"}', status: "ok", durationMs: 20 }, { name: "ls", args: "{}", status: "cancelled" }] },
@@ -137,7 +140,7 @@ test("collapsed groups cap long runs and retain totals", () => {
 	const container = new Container();
 	for (let i = 0; i < 20; i++) container.addChild(tool());
 	const output = plainLines(container).join("\n");
-	assert.match(output, /Read: 20 done/);
+	assert.match(output, /Read \(20\)/);
 	assert.match(output, /12 earlier calls/);
 	assert.equal(container.render(120).length, 11);
 });

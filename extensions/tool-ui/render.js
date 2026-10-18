@@ -88,17 +88,14 @@ export function renderTool(tool, width, theme, hint) {
 }
 
 export function renderGroupHeader(tools, theme, expanded, hint) {
-	const counts = new Map();
-	for (const tool of tools) counts.set(tool.toolName, (counts.get(tool.toolName) ?? 0) + 1);
+	const names = new Set(tools.map((tool) => tool.toolName));
 	const states = tools.map(status);
 	const running = states.filter((state) => state === "running").length;
 	const failed = states.filter((state) => state === "error").length;
-	const done = states.length - running - failed;
-	const name = counts.size === 1 ? title(tools[0].toolName) : "Multiple Tools";
-	const count = [done ? `${done} done` : "", running ? `${running} running` : "", failed ? `${failed} failed` : ""].filter(Boolean).join(" · ");
-	const kinds = counts.size > 1 ? ` · ${[...counts].map(([key, n]) => `${title(key)}×${n}`).join(", ")}` : "";
+	const name = names.size === 1 ? title(tools[0].toolName) : "Multiple Tools";
+	const progress = [running ? `${running} running` : "", failed ? `${failed} failed` : ""].filter(Boolean).join(" · ");
 	const color = failed ? "error" : running ? "muted" : "success";
-	return `${theme.fg(color, "●")} ${theme.fg("toolTitle", `${name}:`)} ${theme.fg(color, count)}${theme.fg("dim", `${kinds} · ${expanded ? "click to collapse" : hint}`)}`;
+	return `${theme.fg(color, "●")} ${theme.fg("toolTitle", `${name} (${tools.length})`)}${progress ? theme.fg(color, ` · ${progress}`) : ""}${theme.fg("dim", ` · ${expanded ? "click to collapse" : hint}`)}`;
 }
 
 export function fitGroupRow(tool, width, theme, last) {
