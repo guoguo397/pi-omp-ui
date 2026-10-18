@@ -1,4 +1,5 @@
 import { OmpEditor } from "./lib/editor.js";
+import { registerAutoTitle } from "./lib/auto-title.js";
 import { readSettings, updateSettings } from "./lib/settings.js";
 import { registerDone } from "./lib/done.js";
 import { registerFooterIcon } from "./lib/footer-icon.js";
@@ -9,6 +10,7 @@ export { OmpEditor };
 
 export default function ompEditorExtension(pi) {
 	registerToolUi(pi);
+	registerAutoTitle(pi);
 	registerFooterIcon(pi);
 	registerUserMessageStyle(pi);
 	let previousFactory;
