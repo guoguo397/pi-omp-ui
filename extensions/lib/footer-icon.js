@@ -1,11 +1,10 @@
 import { FooterComponent } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
-import { readSettings, updateSettings } from "./settings.js";
 import { COMPACT_TOOLS, title } from "../tool-ui/format.js";
 import { MODE_STATUS, modeLabel } from "./interaction-mode.js";
 
 /**
- * Claude Code 风格状态栏。沿用旧模块名和配置键，兼容已保存的开关。
+ * Claude Code 风格状态栏，随扩展自动启用。
  * 仅包装内置 footer，不调用 setFooter，因此不会覆盖其他扩展的自定义状态栏。
  * session / footerData / getSessionStats 是 Pi 1.3.0 内置组件的适配点。
  */
@@ -209,7 +208,6 @@ function installFooterPatch(getView, getTheme) {
 }
 
 export function registerFooterIcon(pi, { getMode = () => undefined } = {}) {
-	let enabled = readSettings().footerIconEnabled !== false;
 	let patch;
 	let startedAt = Date.now();
 	let busy = false;
@@ -223,7 +221,7 @@ export function registerFooterIcon(pi, { getMode = () => undefined } = {}) {
 		activeContext = undefined;
 	};
 	const start = (ctx) => {
-		if (ctx.mode !== "tui" || !enabled || patch) return;
+		if (ctx.mode !== "tui" || patch) return;
 		activeContext = ctx;
 		patch = installFooterPatch(
 			() => ({ elapsedMs: Date.now() - startedAt, busy, toolStart, outputSpeed, interactionMode: getMode() }),
@@ -258,26 +256,5 @@ export function registerFooterIcon(pi, { getMode = () => undefined } = {}) {
 		toolStart = undefined;
 		outputSpeed = undefined;
 		stop();
-	});
-
-	pi.registerCommand("omp-footer", {
-		description: "Toggle the Claude Code-style status bar (on|off|status)",
-		handler: async (args, ctx) => {
-			if (ctx.mode !== "tui") return;
-			const action = args.trim().toLowerCase() || "status";
-			if (action === "on" || action === "off") {
-				enabled = action === "on";
-				updateSettings({ footerIconEnabled: enabled });
-				if (enabled) start(ctx);
-				else stop();
-				ctx.ui.notify(`omp-footer ${enabled ? "enabled" : "disabled"} (saved)`, "info");
-				return;
-			}
-			if (action !== "status") {
-				ctx.ui.notify("Usage: /omp-footer on|off|status", "warning");
-				return;
-			}
-			ctx.ui.notify(`omp-footer is ${enabled ? "enabled" : "disabled"} (saved)`, "info");
-		},
 	});
 }

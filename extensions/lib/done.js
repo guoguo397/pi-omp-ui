@@ -1,16 +1,12 @@
-import { readSettings, updateSettings } from "./settings.js";
-
 /** 优先将完成统计交给输入框；未接管输入框时才回退到独立通知。 */
 export function registerDone(pi, { onUpdate = () => false } = {}) {
-	let enabled = readSettings().doneEnabled !== false;
 	let sessionStartedAt = Date.now();
 	let runStartedAt;
 	let message = "";
 	const refresh = (ctx, notify = false) => {
 		if (ctx.mode !== "tui") return;
-		const text = enabled ? message : "";
-		const embedded = onUpdate(text, ctx);
-		if (notify && text && !embedded) ctx.ui.notify(ctx.ui.theme.fg("success", text), "info");
+		const embedded = onUpdate(message, ctx);
+		if (notify && message && !embedded) ctx.ui.notify(ctx.ui.theme.fg("success", message), "info");
 	};
 
 	pi.on("session_start", (_event, ctx) => {
@@ -31,7 +27,7 @@ export function registerDone(pi, { onUpdate = () => false } = {}) {
 	pi.on("agent_settled", (_event, ctx) => {
 		const startedAt = runStartedAt;
 		runStartedAt = undefined;
-		if (!enabled || ctx.mode !== "tui") return;
+		if (ctx.mode !== "tui") return;
 
 		const now = Date.now();
 		const runTime = startedAt == null ? "" : `本轮 ${formatDuration(now - startedAt)} · `;
@@ -45,23 +41,6 @@ export function registerDone(pi, { onUpdate = () => false } = {}) {
 		runStartedAt = undefined;
 		message = "";
 		refresh(ctx);
-	});
-
-	pi.registerCommand("omp-done", {
-		description: "Toggle completion timing display (on|off|status)",
-		handler: async (args, ctx) => {
-			if (ctx.mode !== "tui") return;
-			const action = args.trim().toLowerCase() || "status";
-			if (action === "on" || action === "off") {
-				enabled = action === "on";
-				updateSettings({ doneEnabled: enabled });
-				refresh(ctx);
-			} else if (action !== "status") {
-				ctx.ui.notify("Usage: /omp-done on|off|status", "warning");
-				return;
-			}
-			ctx.ui.notify(`omp-done is ${enabled ? "enabled" : "disabled"} (saved)`, "info");
-		},
 	});
 }
 

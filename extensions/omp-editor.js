@@ -1,6 +1,5 @@
 import { OmpEditor } from "./lib/editor.js";
 import { registerAutoTitle } from "./lib/auto-title.js";
-import { readSettings, updateSettings } from "./lib/settings.js";
 import { registerDone } from "./lib/done.js";
 import { registerFooterIcon } from "./lib/footer-icon.js";
 import { registerInteractionMode } from "./lib/interaction-mode.js";
@@ -16,7 +15,6 @@ export default function ompEditorExtension(pi) {
 	registerFooterIcon(pi, interactionMode);
 	registerUserMessageStyle(pi);
 	let previousFactory;
-	let enabled = readSettings().enabled !== false;
 	let deferredInstall;
 	let completion = "";
 	let activeTui;
@@ -36,7 +34,7 @@ export default function ompEditorExtension(pi) {
 	registerDone(pi, {
 		onUpdate(message, ctx) {
 			completion = message;
-			if (!enabled || !isActive(ctx)) return false;
+			if (!isActive(ctx)) return false;
 			activeTui?.requestRender();
 			return true;
 		},
@@ -62,16 +60,15 @@ export default function ompEditorExtension(pi) {
 		if (deferredInstall !== undefined) clearTimeout(deferredInstall);
 		// /reload 会重建扩展界面，并在 session_start 后应用运行时及主题设置。
 		// 在下一轮事件循环中重新安装，避免后续界面恢复操作
-		// 覆盖按持久化设置启用的自定义输入框。
+		// 覆盖自定义输入框。
 		deferredInstall = setTimeout(() => {
 			deferredInstall = undefined;
-			if (enabled && ctx.mode === "tui" && !isActive(ctx)) install(ctx);
+			if (ctx.mode === "tui" && !isActive(ctx)) install(ctx);
 		}, 0);
 	};
 
-	// 每次启动交互式会话时，恢复持久化的启用状态。
+	// 每次启动交互式会话时自动安装输入框。
 	pi.on("session_start", (_event, ctx) => {
-		if (!enabled) return;
 		install(ctx);
 		scheduleDeferredInstall(ctx);
 	});
@@ -82,39 +79,5 @@ export default function ompEditorExtension(pi) {
 			deferredInstall = undefined;
 		}
 		uninstall(ctx);
-	});
-
-	pi.registerCommand("omp-editor", {
-		description: "Toggle the OMP-style rounded prompt editor (on|off|status)",
-		handler: async (args, ctx) => {
-			if (ctx.mode !== "tui") return;
-			const action = args.trim().toLowerCase() || "status";
-
-			if (action === "on") {
-				enabled = true;
-				updateSettings({ enabled });
-				install(ctx);
-				ctx.ui.notify("omp-editor enabled (saved)", "info");
-				return;
-			}
-			if (action === "off") {
-				enabled = false;
-				updateSettings({ enabled });
-				uninstall(ctx);
-				ctx.ui.notify("omp-editor disabled (saved)", "info");
-				return;
-			}
-			if (action === "status") {
-				// 已保存为启用状态时，修复输入框被意外替换的情况。
-				if (enabled && !isActive(ctx)) install(ctx);
-				ctx.ui.notify(
-					`omp-editor is ${enabled && isActive(ctx) ? "enabled" : "disabled"} (saved)`,
-					"info",
-				);
-				return;
-			}
-
-			ctx.ui.notify("Usage: /omp-editor on|off|status", "warning");
-		},
 	});
 }

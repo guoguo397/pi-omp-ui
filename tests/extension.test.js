@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { after, beforeEach, test } from "node:test";
 
 // 在加载 Pi 配置模块前隔离 agent 目录，测试绝不修改用户的真实配置。
 const agentDir = mkdtempSync(join(tmpdir(), "omp-extension-"));
 process.env.PI_CODING_AGENT_DIR = agentDir;
+const settingsPath = join(agentDir, "extension-settings", "omp-editor.json");
 const { default: extension, OmpEditor } = await import("../extensions/omp-editor.js");
-const { readSettings } = await import("../extensions/lib/settings.js");
-const { ToolExecutionComponent } = await import("@earendil-works/pi-coding-agent");
+const { FooterComponent, ToolExecutionComponent } = await import("@earendil-works/pi-coding-agent");
 const originalRender = ToolExecutionComponent.prototype.render;
+const originalFooterRender = FooterComponent.prototype.render;
+beforeEach(() => rmSync(settingsPath, { force: true }));
+after(() => rmSync(agentDir, { recursive: true, force: true }));
 
 function mock(mode) {
 	const events = new Map();
@@ -45,6 +48,7 @@ function mock(mode) {
 	};
 	extension({
 		getSessionName: () => sessionName,
+		setSessionName: (name) => { sessionName = name; },
 		on(name, handler) { if (!events.has(name)) events.set(name, []); events.get(name).push(handler); },
 		registerCommand(name, command) { commands.set(name, command); },
 		appendEntry() {},
@@ -55,7 +59,9 @@ function mock(mode) {
 		get editor() { return editorInstance; },
 		get footer() { return footer; },
 		get renders() { return renders; },
-		async emit(name) { for (const handler of events.get(name) ?? []) await handler({ systemPromptOptions: { sections: {} } }, ctx); },
+		async emit(name, event = { systemPromptOptions: { sections: {} } }) {
+			for (const handler of events.get(name) ?? []) await handler(event, ctx);
+		},
 	};
 }
 
@@ -64,59 +70,94 @@ test("entry point re-exports the standalone editor component", async () => {
 	assert.equal(OmpEditor, component);
 });
 
-test("entry point registers UI switches and interaction modes, persists independent switches and cleans up reloads", async () => {
-	try {
-		const first = mock("tui");
-		assert.deepEqual([...first.commands.keys()].sort(), ["omp-done", "omp-editor", "omp-footer", "omp-mode", "omp-tools"]);
-		await first.emit("session_start");
-		await new Promise((resolve) => setTimeout(resolve, 5));
-		assert.notEqual(ToolExecutionComponent.prototype.render, originalRender);
-		assert.ok(first.ctx.ui.getEditorComponent());
-		assert.ok(first.editor instanceof OmpEditor);
-		assert.equal(first.footer, undefined, "footer is left untouched");
-		await first.commands.get("omp-tools").handler("off", first.ctx);
-		assert.equal(ToolExecutionComponent.prototype.render, originalRender);
-		assert.ok(first.ctx.ui.getEditorComponent());
-		await first.commands.get("omp-editor").handler("off", first.ctx);
-		assert.equal(readSettings().enabled, false);
-		assert.equal(readSettings().toolsEnabled, false);
-		assert.equal(first.footer, undefined, "turning off the editor leaves the footer alone");
-		await first.emit("before_agent_start");
-		await first.emit("agent_settled");
-		assert.match(first.notifications.at(-1), /本轮 .*会话累计 .*s$/);
-		assert.doesNotMatch(first.notifications.at(-1), /tokens|输入|输出|\$/);
-		await first.commands.get("omp-done").handler("off", first.ctx);
-		assert.equal(readSettings().doneEnabled, false);
-		await first.commands.get("omp-tools").handler("on", first.ctx);
-		assert.equal(readSettings().enabled, false);
-		assert.equal(readSettings().toolsEnabled, true);
-		assert.equal(readSettings().doneEnabled, false);
-		assert.equal(first.ctx.ui.getEditorComponent(), undefined);
-		await first.emit("session_shutdown");
-		assert.equal(ToolExecutionComponent.prototype.render, originalRender);
-
-		const reloaded = mock("tui");
-		await reloaded.emit("session_start");
-		await new Promise((resolve) => setTimeout(resolve, 5));
-		assert.notEqual(ToolExecutionComponent.prototype.render, originalRender);
-		assert.equal(reloaded.ctx.ui.getEditorComponent(), undefined);
-		await reloaded.commands.get("omp-done").handler("status", reloaded.ctx);
-		assert.match(reloaded.notifications.at(-1), /disabled/);
-		const count = reloaded.notifications.length;
-		await reloaded.emit("agent_settled");
-		assert.equal(reloaded.notifications.length, count);
-		await reloaded.emit("session_shutdown");
-		assert.equal(ToolExecutionComponent.prototype.render, originalRender);
-
-		for (const mode of ["rpc", "json", "print"]) {
-			const nonTui = mock(mode);
-			await nonTui.emit("session_start");
+test("all features stay enabled across reloads without UI switch commands or settings writes", async () => {
+	for (let reload = 0; reload < 2; reload++) {
+		const session = mock("tui");
+		try {
+			assert.deepEqual([...session.commands.keys()], ["omp-mode"]);
+			await session.emit("session_start");
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			assert.notEqual(ToolExecutionComponent.prototype.render, originalRender);
+			assert.notEqual(FooterComponent.prototype.render, originalFooterRender);
+			assert.ok(session.editor instanceof OmpEditor);
+			assert.equal(session.footer, undefined, "custom footers are left untouched");
+			await session.emit("input", { text: "自动命名会话", source: "interactive" });
+			await session.emit("before_agent_start");
+			await session.emit("agent_settled");
+			assert.match(session.editor.render(200)[0], /本轮 .*会话累计 .*自动命名会话/);
+			assert.deepEqual(session.notifications, []);
+			assert.equal(existsSync(settingsPath), false, "no settings file is created");
+		} finally {
+			await session.emit("session_shutdown");
+			assert.equal(session.ctx.ui.getEditorComponent(), undefined);
 			assert.equal(ToolExecutionComponent.prototype.render, originalRender);
-			assert.equal(nonTui.ctx.ui.getEditorComponent(), undefined);
-			assert.equal(nonTui.footer, undefined);
-			await nonTui.emit("session_shutdown");
+			assert.equal(FooterComponent.prototype.render, originalFooterRender);
 		}
-	} finally { rmSync(agentDir, { recursive: true, force: true }); }
+	}
+});
+
+test("legacy false settings cannot disable features and are not rewritten", async () => {
+	mkdirSync(join(agentDir, "extension-settings"), { recursive: true });
+	const settings = `${JSON.stringify({ enabled: false, toolsEnabled: false, doneEnabled: false, footerIconEnabled: false, autoTitle: false, future: 42 }, null, 2)}\n`;
+	writeFileSync(settingsPath, settings);
+	const session = mock("tui");
+	try {
+		await session.emit("session_start");
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		assert.ok(session.editor instanceof OmpEditor);
+		assert.notEqual(ToolExecutionComponent.prototype.render, originalRender);
+		assert.notEqual(FooterComponent.prototype.render, originalFooterRender);
+		await session.emit("input", { text: "旧配置不再生效", source: "interactive" });
+		await session.emit("before_agent_start");
+		await session.emit("agent_settled");
+		assert.match(session.editor.render(200)[0], /本轮 .*会话累计 .*旧配置不再生效/);
+	} finally {
+		await session.emit("session_shutdown");
+	}
+	assert.equal(readFileSync(settingsPath, "utf8"), settings);
+});
+
+test("non-TUI sessions never install terminal UI or create settings", async () => {
+	for (const mode of ["rpc", "json", "print"]) {
+		const session = mock(mode);
+		try {
+			await session.emit("session_start");
+			await session.emit("before_agent_start");
+			await session.emit("agent_settled");
+			assert.equal(ToolExecutionComponent.prototype.render, originalRender);
+			assert.equal(FooterComponent.prototype.render, originalFooterRender);
+			assert.equal(session.ctx.ui.getEditorComponent(), undefined);
+			assert.equal(session.footer, undefined);
+			assert.deepEqual(session.notifications, []);
+			assert.equal(existsSync(settingsPath), false);
+		} finally { await session.emit("session_shutdown"); }
+	}
+});
+
+test("deferred installation restores the editor after reload resets the UI", async () => {
+	const session = mock("tui");
+	try {
+		await session.emit("session_start");
+		session.ctx.ui.setEditorComponent(undefined);
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		assert.ok(session.editor instanceof OmpEditor);
+	} finally { await session.emit("session_shutdown"); }
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	assert.equal(session.ctx.ui.getEditorComponent(), undefined);
+});
+
+test("shutdown cancels deferred installation and restores the previous editor", async () => {
+	const session = mock("tui");
+	const previousFactory = () => ({ render: () => ["previous editor"] });
+	session.ctx.ui.setEditorComponent(previousFactory);
+	try {
+		await session.emit("session_start");
+		assert.ok(session.editor instanceof OmpEditor);
+	} finally { await session.emit("session_shutdown"); }
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	assert.equal(session.ctx.ui.getEditorComponent(), previousFactory);
+	assert.equal(ToolExecutionComponent.prototype.render, originalRender);
+	assert.equal(FooterComponent.prototype.render, originalFooterRender);
 });
 
 test("completion is rendered in the editor border without duplicate notifications", async () => {
@@ -133,12 +174,6 @@ test("completion is rendered in the editor border without duplicate notification
 		assert.doesNotMatch(session.editor.render(200)[0], /tokens|输入|输出|\$/);
 		assert.deepEqual(session.notifications, [], "embedded stats must not also notify");
 		assert.ok(session.renders > previousRenders, "settlement requests a redraw");
-
-		await session.commands.get("omp-done").handler("off", session.ctx);
-		assert.doesNotMatch(session.editor.render(200)[0], /本轮|会话累计/);
-		assert.equal(session.footer, undefined, "done switch leaves the footer alone");
-		await session.commands.get("omp-done").handler("on", session.ctx);
-		assert.match(session.editor.render(200)[0], /本轮 .*会话累计/);
 		await session.emit("before_agent_start");
 		assert.doesNotMatch(session.editor.render(200)[0], /本轮|tokens/);
 		await session.emit("agent_settled");
@@ -147,7 +182,6 @@ test("completion is rendered in the editor border without duplicate notification
 	} finally {
 		await session.emit("session_shutdown");
 		assert.equal(session.footer, undefined);
-		rmSync(agentDir, { recursive: true, force: true });
 	}
 });
 
@@ -163,51 +197,54 @@ test("editor displays the live session name and updates it across naming and ses
 		await session.emit("before_agent_start");
 		await session.emit("agent_settled");
 		assert.match(session.editor.render(160)[0], /本轮.*另一个会话/);
-		await session.commands.get("omp-done").handler("off", session.ctx);
-		assert.match(session.editor.render(160)[0], /另一个会话/);
-		assert.doesNotMatch(session.editor.render(160)[0], /本轮/);
 		session.setSessionName(undefined);
 		await session.emit("session_start");
 		assert.doesNotMatch(session.editor.render(160)[0], /另一个会话/);
-	} finally {
-		await session.emit("session_shutdown");
-		rmSync(agentDir, { recursive: true, force: true });
-	}
+	} finally { await session.emit("session_shutdown"); }
 });
 
-test("external footers are left alone on startup, toggle and shutdown", async () => {
+test("completion falls back to notifications when another extension replaces the editor", async () => {
 	const session = mock("tui");
+	const otherFactory = () => ({ render: () => ["other editor"] });
 	try {
 		await session.emit("session_start");
 		await new Promise((resolve) => setTimeout(resolve, 5));
-		assert.equal(session.footer, undefined);
+		session.ctx.ui.setEditorComponent(otherFactory);
+		await session.emit("before_agent_start");
+		await session.emit("agent_settled");
+		assert.match(session.notifications.at(-1), /本轮 .*会话累计 .*s$/);
+		assert.doesNotMatch(session.notifications.at(-1), /tokens|输入|输出|\$/);
+	} finally { await session.emit("session_shutdown"); }
+	assert.equal(session.ctx.ui.getEditorComponent(), otherFactory, "shutdown leaves the other editor alone");
+});
+
+test("external footers are left alone on startup, reload and shutdown", async () => {
+	const session = mock("tui");
+	try {
 		session.ctx.ui.setFooter(() => ({ render: () => ["other extension"], invalidate() {} }));
-		await session.commands.get("omp-editor").handler("off", session.ctx);
+		await session.emit("session_start");
 		assert.deepEqual(session.footer.render(120), ["other extension"]);
-		await session.commands.get("omp-editor").handler("on", session.ctx);
+		await session.emit("session_start");
 		assert.deepEqual(session.footer.render(120), ["other extension"]);
 		await session.emit("session_shutdown");
 		assert.deepEqual(session.footer.render(120), ["other extension"]);
-	} finally {
-		await session.emit("session_shutdown");
-		rmSync(agentDir, { recursive: true, force: true });
-	}
+	} finally { await session.emit("session_shutdown"); }
 });
 
 test("an active ccstyle renderer is left alone regardless of startup order", async () => {
 	const key = Symbol.for("pi.ccstyle.global-tool-render-patch");
-	try {
-		for (const late of [false, true]) {
+	for (const late of [false, true]) {
+		const session = mock("tui");
+		try {
 			if (!late) globalThis[key] = { active: true };
-			const session = mock("tui");
 			await session.emit("session_start");
 			if (late) globalThis[key] = { active: true };
 			await new Promise((resolve) => setTimeout(resolve, 5));
 			assert.equal(ToolExecutionComponent.prototype.render, originalRender);
-			await session.commands.get("omp-tools").handler("status", session.ctx);
-			assert.match(session.notifications.at(-1), /yielding to pi-cc-extensions/);
+			assert.ok(session.editor instanceof OmpEditor);
+		} finally {
 			await session.emit("session_shutdown");
 			delete globalThis[key];
 		}
-	} finally { delete globalThis[key]; rmSync(agentDir, { recursive: true, force: true }); }
+	}
 });

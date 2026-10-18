@@ -1,17 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { test } from "node:test";
-
-// 在加载设置模块前隔离 agent 目录，测试绝不修改用户的真实配置。
-const agentDir = mkdtempSync(join(tmpdir(), "omp-auto-title-"));
-process.env.PI_CODING_AGENT_DIR = agentDir;
-const { deriveSessionTitle, registerAutoTitle } = await import("../extensions/lib/auto-title.js");
+import { deriveSessionTitle, registerAutoTitle } from "../extensions/lib/auto-title.js";
 
 test("deriveSessionTitle collapses whitespace and skips commands and empty text", () => {
 	assert.equal(deriveSessionTitle("  修复  登录\n页面样式  "), "修复 登录 页面样式");
-	assert.equal(deriveSessionTitle("/omp-editor on"), "");
+	assert.equal(deriveSessionTitle("/name 标题"), "");
 	assert.equal(deriveSessionTitle("   "), "");
 	assert.equal(deriveSessionTitle(undefined), "");
 });
@@ -32,7 +25,7 @@ function mockPi(sessionName) {
 		calls,
 		pi: {
 			getSessionName: () => sessionName,
-			setSessionName: (name) => calls.push(name),
+			setSessionName: (name) => { sessionName = name; calls.push(name); },
 			on: (name, handler) => { if (name === "input") handlers.push(handler); },
 		},
 	};
@@ -62,14 +55,12 @@ test("registerAutoTitle ignores non-interactive sources and slash commands", () 
 	assert.deepEqual(calls, []);
 });
 
-test("registerAutoTitle respects the autoTitle setting", async (t) => {
-	t.after(() => rmSync(agentDir, { recursive: true, force: true }));
-	const { mkdirSync } = await import("node:fs");
-	const settingsPath = join(agentDir, "extension-settings", "omp-editor.json");
-	mkdirSync(join(agentDir, "extension-settings"), { recursive: true });
-	writeFileSync(settingsPath, JSON.stringify({ autoTitle: false }), "utf8");
+test("registerAutoTitle names only once and leaves input unchanged", () => {
 	const { handlers, calls, pi } = mockPi("");
 	registerAutoTitle(pi);
-	handlers[0]({ text: "不应命名", source: "interactive" });
-	assert.deepEqual(calls, []);
+	const event = { text: "首条有效输入", source: "interactive" };
+	assert.equal(handlers[0](event), undefined);
+	assert.deepEqual(event, { text: "首条有效输入", source: "interactive" });
+	handlers[0]({ text: "后续输入", source: "interactive" });
+	assert.deepEqual(calls, ["首条有效输入"]);
 });

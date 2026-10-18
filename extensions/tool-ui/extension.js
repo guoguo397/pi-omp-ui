@@ -1,12 +1,10 @@
 import { keyText } from "@earendil-works/pi-coding-agent";
 import { isViewportTUI } from "@earendil-works/pi-tui";
-import { readSettings, updateSettings } from "../lib/settings.js";
 import { hasExternalToolUi, installToolUi } from "./runtime.js";
 
 const HOST_WIDGET = "omp-editor-tool-ui-host";
 
 export function registerToolUi(pi) {
-	let enabled = readSettings().toolsEnabled !== false;
 	let patch;
 	let root;
 	let deferred;
@@ -24,7 +22,7 @@ export function registerToolUi(pi) {
 
 	const start = (ctx) => {
 		context = ctx;
-		if (ctx.mode !== "tui" || !enabled) return;
+		if (ctx.mode !== "tui") return;
 		if (hasExternalToolUi()) return;
 		// 零高度 widget 只用于获取 Pi 提供的 TUI，不替换 header/footer/editor。
 		ctx.ui.setWidget(HOST_WIDGET, (tui) => {
@@ -33,7 +31,6 @@ export function registerToolUi(pi) {
 		}, { placement: "belowEditor" });
 		if (!patch) patch = installToolUi({
 			theme: () => context.ui.theme,
-			enabled: () => enabled,
 			hint: () => root && isViewportTUI(root) ? "click to show more" : `${keyText("app.tools.expand") || "Ctrl+O"} to show more`,
 		});
 		root?.requestRender();
@@ -47,29 +44,8 @@ export function registerToolUi(pi) {
 		deferred = setTimeout(() => {
 			deferred = undefined;
 			if (hasExternalToolUi()) stop();
-			else if (enabled) start(ctx);
+			else start(ctx);
 		}, 0);
 	});
 	pi.on("session_shutdown", () => { stop(); context = undefined; });
-
-	pi.registerCommand("omp-tools", {
-		description: "Toggle compact tool cards and tree groups (on|off|status)",
-		handler: async (args, ctx) => {
-			if (ctx.mode !== "tui") return;
-			const action = args.trim().toLowerCase() || "status";
-			if (action === "on" || action === "off") {
-				enabled = action === "on";
-				updateSettings({ toolsEnabled: enabled });
-				if (enabled) start(ctx);
-				else stop();
-			} else if (action !== "status") {
-				ctx.ui.notify("Usage: /omp-tools on|off|status", "warning");
-				return;
-			}
-			const external = hasExternalToolUi();
-			ctx.ui.notify(external && enabled
-				? "omp-tools: yielding to pi-cc-extensions; remove that renderer and /reload to use the bundled UI"
-				: `omp-tools is ${enabled ? "enabled" : "disabled"} (saved)`, "info");
-		},
-	});
 }

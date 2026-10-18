@@ -1,20 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { after, beforeEach, test } from "node:test";
+import { after, test } from "node:test";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
-const directory = mkdtempSync(join(tmpdir(), "omp-footer-icon-"));
-process.env.PI_CODING_AGENT_DIR = directory;
 const { registerFooterIcon, renderClaudeFooter, countMcpServers, collectToolUsage, collectOutputSpeed } = await import("../extensions/lib/footer-icon.js");
-const { readSettings, SETTINGS_PATH } = await import("../extensions/lib/settings.js");
 const { FooterComponent } = await import("@earendil-works/pi-coding-agent");
 const originalRender = FooterComponent.prototype.render;
-beforeEach(() => rmSync(SETTINGS_PATH, { force: true }));
 after(() => {
 	globalThis[Symbol.for("pi.omp-editor.footer-icon-patch")]?.dispose();
-	rmSync(directory, { recursive: true, force: true });
 });
 
 function create(mode = "tui", options) {
@@ -316,9 +308,6 @@ test("tool summary resets each run, retains settled results and avoids per-frame
 		assert.equal(footer.render(120)[3], "✗ Read ×1 | ✓ Write ×1", "continuation before settlement stays in this run");
 		await session.emit("agent_settled");
 		assert.equal(footer.render(120)[3], "✗ Read ×1 | ✓ Write ×1");
-		await session.commands.get("omp-footer").handler("off", session.ctx);
-		await session.commands.get("omp-footer").handler("on", session.ctx);
-		assert.equal(footer.render(120)[3], "✗ Read ×1 | ✓ Write ×1", "footer toggle does not reset the run");
 
 		await session.emit("before_agent_start");
 		assert.equal(footer.render(120).length, 4);
@@ -366,9 +355,6 @@ test("output speed appears only on settlement, stays stable and resets across ru
 		assert.match(line(), /42\.6 tok\/s/, "later entries do not change the finalized speed");
 		await session.emit("agent_settled");
 		assert.match(line(), /42\.6 tok\/s/, "duplicate settlement does not recalculate");
-		await session.commands.get("omp-footer").handler("off", session.ctx);
-		await session.commands.get("omp-footer").handler("on", session.ctx);
-		assert.match(line(), /42\.6 tok\/s/, "toggle retains the last result");
 		await session.emit("before_agent_start");
 		assert.doesNotMatch(line(), /tok\/s/);
 		entries.push(response(50, undefined));
@@ -383,30 +369,20 @@ test("output speed appears only on settlement, stays stable and resets across ru
 	} finally { await session.emit("session_shutdown"); }
 });
 
-test("patch wraps the built-in footer only when enabled and restores on shutdown", async () => {
+test("patch always wraps the built-in footer without toggle commands and restores on shutdown", async () => {
 	const session = create();
-	await session.emit("session_start");
-	assert.notEqual(FooterComponent.prototype.render, originalRender);
-	await session.commands.get("omp-footer").handler("off", session.ctx);
-	assert.equal(FooterComponent.prototype.render, originalRender);
-	assert.equal(readSettings().footerIconEnabled, false);
-	assert.match(session.notifications.at(-1).message, /disabled/);
-	await session.commands.get("omp-footer").handler("on", session.ctx);
-	assert.notEqual(FooterComponent.prototype.render, originalRender);
-	assert.equal(readSettings().footerIconEnabled, true);
-	await session.commands.get("omp-footer").handler("status", session.ctx);
-	assert.match(session.notifications.at(-1).message, /enabled/);
-	await session.emit("session_shutdown");
+	try {
+		assert.equal(session.commands.size, 0);
+		await session.emit("session_start");
+		assert.notEqual(FooterComponent.prototype.render, originalRender);
+		await session.emit("session_start");
+		assert.notEqual(FooterComponent.prototype.render, originalRender);
+		assert.deepEqual(session.notifications, []);
+	} finally { await session.emit("session_shutdown"); }
 	assert.equal(FooterComponent.prototype.render, originalRender);
 });
 
-test("disabled setting stays native across sessions and non-TUI modes never patch", async () => {
-	const { updateSettings } = await import("../extensions/lib/settings.js");
-	updateSettings({ footerIconEnabled: false });
-	const session = create();
-	await session.emit("session_start");
-	assert.equal(FooterComponent.prototype.render, originalRender);
-	await session.emit("session_shutdown");
+test("non-TUI modes never patch the footer", async () => {
 	for (const mode of ["rpc", "json", "print"]) {
 		const nonTui = create(mode);
 		await nonTui.emit("session_start");
@@ -432,8 +408,5 @@ test("native footer reads live interaction mode without caching or duplicating f
 		assert.doesNotMatch(footer.render(200)[3], /fallback mode/);
 		mode = "plan";
 		assert.match(footer.render(200)[3], /^⏸ plan mode.*real plugin$/);
-		await session.commands.get("omp-footer").handler("off", session.ctx);
-		await session.commands.get("omp-footer").handler("on", session.ctx);
-		assert.match(footer.render(200)[3], /^⏸ plan mode/);
 	} finally { await session.emit("session_shutdown"); }
 });

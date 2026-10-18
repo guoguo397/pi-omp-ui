@@ -1,15 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { after, beforeEach, test } from "node:test";
-
-const directory = mkdtempSync(join(tmpdir(), "omp-done-"));
-process.env.PI_CODING_AGENT_DIR = directory;
-const { registerDone, formatDuration } = await import("../extensions/lib/done.js");
-const { readSettings, updateSettings, SETTINGS_PATH } = await import("../extensions/lib/settings.js");
-beforeEach(() => rmSync(SETTINGS_PATH, { force: true }));
-after(() => rmSync(directory, { recursive: true, force: true }));
+import { test } from "node:test";
+import { registerDone, formatDuration } from "../extensions/lib/done.js";
 
 function create(mode = "tui", options) {
 	const handlers = new Map();
@@ -84,34 +75,20 @@ test("done omits tokens and cost and never reads session usage", (t) => {
 	assert.doesNotMatch(message, /tokens|输入|输出|\$/);
 });
 
-test("done switch persists independently of editor/tools and reloads without stale timing", async () => {
-	updateSettings({ enabled: false, toolsEnabled: false, future: 42 });
+test("done is always active without registering a toggle command", () => {
 	const session = create();
-	const command = session.commands.get("omp-done");
-	await command.handler(" off ", session.ctx);
-	assert.deepEqual(readSettings(), { enabled: false, toolsEnabled: false, future: 42, doneEnabled: false });
-	session.notifications.length = 0;
+	assert.equal(session.commands.size, 0);
 	session.emit("before_agent_start");
 	session.emit("agent_settled");
-	assert.equal(session.notifications.length, 0);
+	assert.match(session.notifications.at(-1).message, /本轮 .*会话累计/);
 	const reloaded = create();
-	reloaded.emit("agent_settled");
-	assert.equal(reloaded.notifications.length, 0);
-
-	await reloaded.commands.get("omp-done").handler("on", reloaded.ctx);
-	assert.equal(readSettings().doneEnabled, true);
-	assert.equal(readSettings().enabled, false);
-	assert.equal(readSettings().toolsEnabled, false);
+	assert.equal(reloaded.commands.size, 0);
 	reloaded.emit("agent_settled");
 	assert.match(reloaded.notifications.at(-1).message, /会话累计/);
 	assert.doesNotMatch(reloaded.notifications.at(-1).message, /本轮/);
-	await reloaded.commands.get("omp-done").handler("", reloaded.ctx);
-	assert.match(reloaded.notifications.at(-1).message, /enabled/);
-	await reloaded.commands.get("omp-done").handler("invalid", reloaded.ctx);
-	assert.match(reloaded.notifications.at(-1).message, /Usage:/);
 });
 
-test("done publishes raw text to the border, clears it on lifecycle changes and toggles independently", async () => {
+test("done publishes raw text to the border and clears it on lifecycle changes", () => {
 	const updates = [];
 	const session = create("tui", { onUpdate: (text) => { updates.push(text); return true; } });
 	session.emit("session_start");
@@ -122,10 +99,6 @@ test("done publishes raw text to the border, clears it on lifecycle changes and 
 	assert.doesNotMatch(updates.at(-1), /tokens|输入|输出|\$/);
 	assert.doesNotMatch(updates.at(-1), /success:/, "theme colors belong to render time");
 	assert.deepEqual(session.notifications, []);
-	await session.commands.get("omp-done").handler("off", session.ctx);
-	assert.equal(updates.at(-1), "");
-	await session.commands.get("omp-done").handler("on", session.ctx);
-	assert.match(updates.at(-1), /^本轮/);
 	session.emit("before_agent_start");
 	assert.equal(updates.at(-1), "");
 	session.emit("agent_settled");
@@ -133,15 +106,14 @@ test("done publishes raw text to the border, clears it on lifecycle changes and 
 	assert.equal(updates.at(-1), "");
 });
 
-test("done stays silent and never reads usage or writes settings outside TUI", async () => {
+test("done stays silent and never reads usage outside TUI", () => {
 	for (const mode of ["rpc", "json", "print"]) {
 		const session = create(mode, { onUpdate: () => { throw new Error("must not update terminal UI"); } });
 		session.ctx.sessionManager.getEntries = () => { throw new Error("must not read usage"); };
 		session.emit("session_start");
 		session.emit("before_agent_start");
 		session.emit("agent_settled");
-		await session.commands.get("omp-done").handler("off", session.ctx);
 		assert.deepEqual(session.notifications, []);
-		assert.deepEqual(readSettings(), {});
+		assert.equal(session.commands.size, 0);
 	}
 });

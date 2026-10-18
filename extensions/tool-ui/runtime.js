@@ -103,7 +103,7 @@ function project(children, state) {
 }
 
 /** Pi 1.3.0 的组件适配仅覆盖 render/handleMouse，不改工具定义、结果或执行路径。 */
-export function installToolUi({ theme, hint, enabled = () => true }) {
+export function installToolUi({ theme, hint }) {
 	globalThis[PATCH_KEY]?.dispose();
 	const toolPrototype = ToolExecutionComponent.prototype;
 	const containerPrototype = Container.prototype;
@@ -114,7 +114,7 @@ export function installToolUi({ theme, hint, enabled = () => true }) {
 		theme,
 		hint: hint ?? (() => `${keyText("app.tools.expand") || "Ctrl+O"} to show more`),
 		timer: undefined,
-		isEnabled: () => state.active && enabled() && !hasExternalToolUi(),
+		isEnabled: () => state.active && !hasExternalToolUi(),
 		animate(tool) {
 			if (state.timer !== undefined || !state.isEnabled()) return;
 			state.timer = setTimeout(() => {
