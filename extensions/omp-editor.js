@@ -10,7 +10,6 @@ export { OmpEditor };
 
 export default function ompEditorExtension(pi) {
 	registerToolUi(pi);
-	registerAutoTitle(pi);
 	const interactionMode = registerInteractionMode(pi);
 	registerFooterIcon(pi, interactionMode);
 	registerUserMessageStyle(pi);
@@ -30,6 +29,7 @@ export default function ompEditorExtension(pi) {
 		});
 	};
 	const isActive = (ctx) => ctx.ui.getEditorComponent() === factory;
+	registerAutoTitle(pi, { onUpdate: () => activeTui?.requestRender() });
 
 	registerDone(pi, {
 		onUpdate(message, ctx) {

@@ -24,11 +24,20 @@ function mock(mode) {
 	let footer;
 	let renders = 0;
 	let sessionName;
+	const branch = [];
+	const titleRequests = [];
 	const tui = { terminal: { rows: 30 }, requestRender() { renders++; } };
 	const ctx = {
 		mode,
 		isIdle: () => true,
-		sessionManager: { getEntries: () => [], getBranch: () => [] },
+		model: { id: "test-model" },
+		modelRegistry: {
+			streamSimple(model, context, options) {
+				titleRequests.push({ model, context, options });
+				return { result: async () => ({ stopReason: "stop", content: [{ type: "text", text: "AI 概括的会话标题" }] }) };
+			},
+		},
+		sessionManager: { getEntries: () => [], getBranch: () => branch, getSessionId: () => "test-session" },
 		ui: {
 			theme: { fg: (_token, text) => text, bg: (_token, text) => text, bold: (text) => text },
 			notify: (text) => notifications.push(text),
@@ -54,7 +63,7 @@ function mock(mode) {
 		appendEntry() {},
 	});
 	return {
-		ctx, commands, notifications,
+		ctx, commands, notifications, branch, titleRequests,
 		setSessionName(name) { sessionName = name; },
 		get editor() { return editorInstance; },
 		get footer() { return footer; },
@@ -81,10 +90,18 @@ test("all features stay enabled across reloads without UI switch commands or set
 			assert.notEqual(FooterComponent.prototype.render, originalFooterRender);
 			assert.ok(session.editor instanceof OmpEditor);
 			assert.equal(session.footer, undefined, "custom footers are left untouched");
-			await session.emit("input", { text: "自动命名会话", source: "interactive" });
+			await session.emit("input", { text: "需要优化工具分组和状态栏的显示", source: "interactive" });
+			assert.doesNotMatch(session.editor.render(200)[0], /需要优化/);
+			session.branch.push(
+				{ type: "message", message: { role: "user", content: "需要优化工具分组和状态栏的显示" } },
+				{ type: "message", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "已调整工具分组和状态栏。" }] } },
+			);
 			await session.emit("before_agent_start");
 			await session.emit("agent_settled");
-			assert.match(session.editor.render(200)[0], /本轮 .*会话累计 .*自动命名会话/);
+			await new Promise((resolve) => setImmediate(resolve));
+			assert.match(session.editor.render(200)[0], /本轮 .*会话累计 .*AI 概括的会话标题/);
+			assert.equal(session.titleRequests.length, 1);
+			assert.match(session.titleRequests[0].context.messages[0].content, /已调整工具分组和状态栏/);
 			assert.deepEqual(session.notifications, []);
 			assert.equal(existsSync(settingsPath), false, "no settings file is created");
 		} finally {
@@ -108,9 +125,15 @@ test("legacy false settings cannot disable features and are not rewritten", asyn
 		assert.notEqual(ToolExecutionComponent.prototype.render, originalRender);
 		assert.notEqual(FooterComponent.prototype.render, originalFooterRender);
 		await session.emit("input", { text: "旧配置不再生效", source: "interactive" });
+		session.branch.push(
+			{ type: "message", message: { role: "user", content: "旧配置不再生效" } },
+			{ type: "message", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "所有功能已启用。" }] } },
+		);
 		await session.emit("before_agent_start");
 		await session.emit("agent_settled");
-		assert.match(session.editor.render(200)[0], /本轮 .*会话累计 .*旧配置不再生效/);
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.match(session.editor.render(200)[0], /本轮 .*会话累计 .*AI 概括的会话标题/);
+		assert.equal(session.titleRequests.length, 1);
 	} finally {
 		await session.emit("session_shutdown");
 	}
@@ -122,8 +145,10 @@ test("non-TUI sessions never install terminal UI or create settings", async () =
 		const session = mock(mode);
 		try {
 			await session.emit("session_start");
+			await session.emit("input", { text: "不应调用模型", source: "interactive" });
 			await session.emit("before_agent_start");
 			await session.emit("agent_settled");
+			assert.deepEqual(session.titleRequests, []);
 			assert.equal(ToolExecutionComponent.prototype.render, originalRender);
 			assert.equal(FooterComponent.prototype.render, originalFooterRender);
 			assert.equal(session.ctx.ui.getEditorComponent(), undefined);
@@ -183,6 +208,31 @@ test("completion is rendered in the editor border without duplicate notification
 		await session.emit("session_shutdown");
 		assert.equal(session.footer, undefined);
 	}
+});
+
+test("a background AI title requests a redraw after completion statistics are already visible", async () => {
+	const session = mock("tui");
+	const deferred = Promise.withResolvers();
+	session.ctx.modelRegistry.streamSimple = () => ({ result: () => deferred.promise });
+	try {
+		await session.emit("session_start");
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		await session.emit("input", { text: "登录后状态丢失", source: "interactive" });
+		session.branch.push(
+			{ type: "message", message: { role: "user", content: "登录后状态丢失" } },
+			{ type: "message", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "已修复。" }] } },
+		);
+		await session.emit("before_agent_start");
+		await session.emit("agent_settled");
+		assert.match(session.editor.render(200)[0], /本轮 .*会话累计/);
+		assert.doesNotMatch(session.editor.render(200)[0], /修复登录状态/);
+		const renders = session.renders;
+		deferred.resolve({ stopReason: "stop", content: [{ type: "text", text: "修复登录状态" }] });
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.ok(session.renders > renders);
+		assert.match(session.editor.render(200)[0], /本轮 .*会话累计 .*修复登录状态/);
+		assert.deepEqual(session.notifications, []);
+	} finally { await session.emit("session_shutdown"); }
 });
 
 test("editor displays the live session name and updates it across naming and session changes", async () => {
