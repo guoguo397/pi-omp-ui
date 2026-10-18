@@ -23,9 +23,11 @@ function diffRows(tool) {
 	return cached.rows;
 }
 
-export function toolLine(tool, theme, grouped = false) {
-	const detail = grouped && tool.toolName === "codemode" && tool.result ? resultSummary(tool) : callSummary(tool.toolName, tool.args);
-	return `${icon(status(tool), theme)} ${theme.fg("toolTitle", theme.bold(title(tool.toolName)))}${detail ? ` ${theme.fg("muted", detail)}` : ""}`;
+export function toolLine(tool, theme, grouped = false, width = Infinity) {
+	const label = `${icon(status(tool), theme)} ${theme.fg("toolTitle", theme.bold(title(tool.toolName)))}`;
+	const detail = grouped && tool.toolName === "codemode" && tool.result ? resultSummary(tool) :
+		callSummary(tool.toolName, tool.args, Math.max(0, width - visibleWidth(label) - 1));
+	return `${label}${detail ? ` ${theme.fg("muted", detail)}` : ""}`;
 }
 
 export function padding(tool, width) {
@@ -40,9 +42,11 @@ function nestedLines(tool, width, theme, expanded) {
 	for (let index = 0; index < shown.length; index++) {
 		const call = shown[index];
 		const rail = index === shown.length - 1 ? "└" : "├";
-		const summary = callSummary(call.name, call.args);
+		const label = `${theme.fg("dim", rail)} ${icon(call.status, theme)} ${theme.fg("toolTitle", title(call.name))}`;
 		const meta = duration(call.durationMs);
-		lines.push(truncateToWidth(`${theme.fg("dim", rail)} ${icon(call.status, theme)} ${theme.fg("toolTitle", title(call.name))} ${theme.fg("muted", summary)}${meta ? theme.fg("dim", ` · ${meta}`) : ""}`, width, ""));
+		const suffix = meta ? theme.fg("dim", ` · ${meta}`) : "";
+		const summary = callSummary(call.name, call.args, Math.max(0, width - visibleWidth(label) - visibleWidth(suffix) - 1));
+		lines.push(truncateToWidth(`${label}${summary ? ` ${theme.fg("muted", summary)}` : ""}${suffix}`, width, ""));
 		if (call.error) lines.push(truncateToWidth(theme.fg("error", `  ${oneLine(call.error)}`), width, ""));
 	}
 	return lines;
@@ -56,7 +60,7 @@ function inputText(args) {
 function renderToolText(tool, width, theme, hint) {
 	const pad = padding(tool, width);
 	const inner = Math.max(1, width - pad * 2);
-	const lines = [toolLine(tool, theme)];
+	const lines = [toolLine(tool, theme, false, inner)];
 	if (tool.toolName === "codemode") lines.push(...nestedLines(tool, inner, theme, tool.expanded));
 	if (tool.result) {
 		const rows = tool.toolName === "edit" ? diffRows(tool) : [];
@@ -128,7 +132,7 @@ export function renderGroupHeader(tools, theme, expanded) {
 }
 
 export function fitGroupRow(tool, width, theme, last) {
-	return truncateToWidth(`${theme.fg("dim", last ? "└" : "├")} ${toolLine(tool, theme, true)}`, width, "");
+	return truncateToWidth(`${theme.fg("dim", last ? "└" : "├")} ${toolLine(tool, theme, true, Math.max(0, width - 2))}`, width, "");
 }
 
 export function fitLine(text, width) {

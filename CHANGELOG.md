@@ -21,6 +21,7 @@
 
 ### 调整
 
+- Bash / PowerShell 工具标题改为程序与最多两个子命令式裸词，省略选项、正文和 token 参数；摘要最多 80 个显示列，窄屏按剩余宽度加 `…` 截断。复合命令保留省略提示，多行脚本显示 `Multiline script`，统一覆盖单卡、工具组及 Codemode 子调用；实际参数、展开后的完整输入 / 输出、状态及耗时不变，不增加业务命令识别或安全脱敏机制。
 - Codemode 工具标题不再附带脚本首行，避免显示 `const results = await Promise.allSettled([` 等实现代码；子调用进度、结果统计及展开后的完整输入 / 输出保持不变。
 - 移除 `/omp-editor`、`/omp-tools`、`/omp-done`、`/omp-footer` 功能开关及配置读写。输入框、工具 UI、完成统计、状态栏和自动会话命名始终启用，旧配置中的 `false` 不再生效；保留 `/omp-mode` 与 `Shift+Tab` 的执行 / 计划切换。
 - 工具摘要中的用户主目录缩写为 `~/`，Read 摘要移除 `offset` / `limit`；适用于单工具、分组及 Codemode 子调用，实际调用与展开输入保持完整。

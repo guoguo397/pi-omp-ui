@@ -82,6 +82,7 @@ pi install git:github.com/guoguo397/pi-omp-ui@v2.0.0
 - **Regular**：使用 Pi 原生工具展开快捷键，默认 **Ctrl+O**；Fullscreen 也支持。
 - 工具组和 Codemode 折叠时最多显示最近 8 项；Edit 默认预览 20 行，展开查看完整内容。
 - 工具摘要将用户主目录（如 `C:/Users/hy/`）缩写为 `~/`，其他目录路径保留；Read 摘要不显示 `offset` / `limit`。仅精简展示，实际参数及展开后的完整输入不变。
+- Bash / PowerShell 标题只保留程序与最多两个子命令式裸词，不展开选项、正文或 token 参数；摘要最多 80 个显示列，并按窗口剩余宽度加 `…` 截断。复合命令保留省略提示，多行脚本显示 `Multiline script`；单卡、分组和 Codemode 子调用保持一致。这里只做展示启发式，不是完整 Shell 解析或安全脱敏；完整命令仍在展开后的 Input 中查看。
 - 未知工具保留原渲染器。检测到 `pi-cc-extensions` 接管工具渲染时自动让位。
 
 ### 统计与状态栏

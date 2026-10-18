@@ -158,6 +158,95 @@ test("codemode titles hide script previews without changing progress, results or
 	assert.equal(value.result, result);
 });
 
+test("shell titles keep only a short executable/subcommand prefix for both shells", () => {
+	const cases = [
+		[undefined, ""],
+		["  \t ", ""],
+		["agently-cli +me", "agently-cli +me"],
+		["agently-cli message +send --to tester@example.com --subject 'Test' --body 'hello; | & (literal)' --confirmation-token ctk_test", "agently-cli message +send"],
+		["git status --short", "git status"],
+		["npm run test -- --reporter spec", "npm run test"],
+		["uv run pytest tests/test_example.py", "uv run pytest"],
+		["node --eval \"console.log('hello')\"", "node"],
+		["git remote set-url origin https://example.com/repo.git", "git remote set-url …"],
+		["\x1b[31m工具😀\x1b[0m 子命令 --option 'secret'", "工具😀 子命令"],
+	];
+	for (const name of ["powershell", "bash"]) {
+		for (const [command, expected] of cases) assert.equal(callSummary(name, { command }), expected, `${name}: ${command}`);
+		assert.equal(callSummary(name, JSON.stringify({ command: "git status --short" })), "git status");
+	}
+	assert.equal(callSummary("powershell", { command: "& 'C:/Program Files/tool.exe' status --verbose" }), "'C:/Program Files/tool.exe' status");
+});
+
+test("shell summaries mark compound, dynamic and multiline scripts without exposing their bodies", () => {
+	for (const name of ["powershell", "bash"]) {
+		for (const command of [
+			"git status; git diff", "git status | other-command", "git status&&git diff",
+			"git status & other-command", "git status 2> output.txt", "git status # comment",
+			"git status --name 'unfinished", 'git status --name "$(other-command)"',
+		]) assert.equal(callSummary(name, { command }), "git status …", `${name}: ${command}`);
+		for (const command of ["git status\ngit diff", "git status\r\ngit diff", "$secret = 'hidden'\nWrite-Output $secret"]) {
+			assert.equal(callSummary(name, { command }), "Multiline script");
+		}
+		assert.equal(callSummary(name, { command: "API_TOKEN=secret git status" }), "Script …");
+		assert.equal(callSummary(name, { command: `tool --body '${"x".repeat(5000)}'` }), "tool …");
+	}
+	assert.equal(callSummary("powershell", { command: "$value = Get-Date; Write-Output $value" }), "Script …");
+	assert.equal(callSummary("powershell", { command: "tool --body 'it''s literal; | text'" }), "tool");
+	assert.equal(callSummary("bash", { command: 'tool --body "escaped \\" quote; | text"' }), "tool");
+});
+
+test("short shell titles preserve complete expanded input, results, status and timing", () => {
+	install();
+	const command = "agently-cli message +send --to tester@example.com --subject 'Test' --body 'complete body' --confirmation-token ctk_test";
+	for (const name of ["powershell", "bash"]) {
+		const args = { command, timeout: 60 };
+		const value = tool(name, args);
+		const result = value.result;
+		const collapsed = plainLines(value, 240);
+		assert.equal(collapsed[1].trim(), `✓ ${name === "powershell" ? "PowerShell" : "Bash"} agently-cli message +send`);
+		assert.match(collapsed.join("\n"), /3 lines returned · 451ms · click to show more/);
+		assert.doesNotMatch(collapsed.join("\n"), /--to|--body|ctk_test/);
+		value.setExpanded(true);
+		const expanded = plainLines(value, 500).join("\n");
+		assert.ok(expanded.includes(command), "expanded input must retain every command argument");
+		assert.match(expanded, /"timeout": 60/);
+		assert.match(expanded, /Output[\s\S]*one[\s\S]*two[\s\S]*three/);
+		assert.equal(value.args, args);
+		assert.equal(value.args.command, command);
+		assert.equal(value.result, result);
+		value.updateResult({ ...result, isError: true });
+		assert.match(plainLines(value).join("\n"), new RegExp(`✗ ${name === "powershell" ? "PowerShell" : "Bash"} agently-cli message \\+send`));
+	}
+});
+
+test("shell title budgets use display columns and add ellipses in cards, groups and nested calls", () => {
+	install();
+	const command = `${"工具😀".repeat(30)} 子命令 --body 'hidden'`;
+	for (const name of ["powershell", "bash"]) {
+		assert.equal(callSummary(name, { command }), `${"工具😀".repeat(13)}…`, "truncate on grapheme boundaries, not inside a wide character");
+		assert.ok(callSummary(name, { command }).endsWith("…"));
+		for (const width of [0, 1, 2, 5, 10, 40, 80, 120]) {
+			assert.ok(visibleWidth(callSummary(name, { command }, width)) <= Math.min(80, width));
+		}
+		const value = tool(name, { command });
+		const group = new Container();
+		group.addChild(value);
+		group.addChild(tool("ls", { path: "." }));
+		const code = tool("codemode", {}, { result: { details: { calls: [
+			{ name, args: { command }, status: "ok", durationMs: 20 },
+		] } } });
+		for (const component of [value, group, code]) {
+			assert.match(plainLines(component, 40).join("\n"), /…/);
+			assert.doesNotMatch(plainLines(component, 240).join("\n"), /--body|hidden/);
+			for (const width of [0, 1, 2, 5, 10, 40, 80, 120]) {
+				for (const line of component.render(width)) assert.ok(visibleWidth(line) <= width, `width ${width}: ${line}`);
+			}
+		}
+		assert.match(plainLines(code, 40).join("\n"), /· 20ms/);
+	}
+});
+
 test("expanded group mouse events reach the correct child after resize", () => {
 	install();
 	const container = new Container();

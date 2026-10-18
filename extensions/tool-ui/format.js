@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
 
 export const COMPACT_TOOLS = new Set([
 	"read", "ls", "find", "grep", "bash", "powershell", "edit", "write", "codemode", "tool_search",
@@ -46,7 +46,49 @@ export function parseArgs(value) {
 	}
 }
 
-export function callSummary(name, input) {
+/** 仅识别摘要所需的引号/转义和复合语法，不尝试解析或执行 Shell。 */
+function hasShellSyntax(command, shell) {
+	let quote = "";
+	for (let index = 0; index < command.length; index++) {
+		const char = command[index];
+		if (char === (shell === "powershell" ? "`" : "\\") && quote !== "'") { index++; continue; }
+		if (quote) {
+			if (char === quote) {
+				if (shell === "powershell" && quote === "'" && command[index + 1] === "'") { index++; continue; }
+				quote = "";
+			} else if (quote === '"' && (char === "$" || (shell === "bash" && char === "`"))) return true;
+			continue;
+		}
+		if (char === "'" || char === '"') quote = char;
+		else if (/[|;&<>(){}$`#]/.test(char)) return true;
+	}
+	return quote !== "";
+}
+
+function commandSummary(value, shell, width) {
+	const raw = String(value ?? "");
+	// 限制展示层扫描成本；超长命令保留省略提示，完整输入仍由展开卡展示。
+	let command = plain(raw.slice(0, 4096)).trim();
+	const limit = Math.max(0, Math.min(80, width));
+	if (!command || !limit) return "";
+	if (command.includes("\n")) return plain(truncateToWidth("Multiline script", limit, "…"));
+	if (shell === "powershell") command = command.replace(/^&\s+(?=['"])/, "");
+	let head = command.match(/^(?:"[^"]+"|'[^']+'|[^\s"'|;&<>(){}$`#=]+)(?=\s|$|[|;&<>(){}$`#])/u)?.[0] ?? "";
+	if (hasShellSyntax(head, shell)) head = "";
+	let rest = command.slice(head.length);
+	// 最多保留两个类似子命令的裸词；选项、带引号的正文及其他参数不进入标题。
+	const word = /^\s+(\+?[\p{L}_][\p{L}\p{N}_-]*)(?=\s|$|[|;&<>(){}$`#])/u;
+	for (let count = 0; head && count < 2; count++) {
+		const match = rest.match(word);
+		if (!match) break;
+		head += ` ${match[1]}`;
+		rest = rest.slice(match[0].length);
+	}
+	const omitted = !head || raw.length > 4096 || hasShellSyntax(command, shell) || word.test(rest);
+	return plain(truncateToWidth(`${head || "Script"}${omitted ? " …" : ""}`, limit, "…"));
+}
+
+export function callSummary(name, input, width = 80) {
 	const args = parseArgs(input);
 	const path = args.path ?? args.file_path;
 	switch (name) {
@@ -57,7 +99,7 @@ export function callSummary(name, input) {
 		case "edit":
 		case "write": return displayPath(path);
 		case "bash":
-		case "powershell": return oneLine(args.command);
+		case "powershell": return commandSummary(args.command, name, width);
 		case "tool_search": return oneLine(args.query);
 		// 脚本仅在展开后的完整输入中展示，不把实现代码作为标题摘要。
 		case "codemode": return "";
