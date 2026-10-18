@@ -220,6 +220,27 @@ test("session usage collects skills and sub-agents from entries without double c
 	assert.deepEqual(collectSessionUsage(), { skills: new Map(), agents: new Map() });
 });
 
+test("flash counts only started results once and reads skills from successful nested calls", () => {
+	const entries = [
+		{ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "flash" }] } },
+		{ type: "message", message: { role: "toolResult", toolName: "flash", details: { agent: "flash", started: true }, nestedCalls: { calls: [
+			{ name: "read", status: "ok", arguments: { path: "/skills/agently-mail/SKILL.md" } },
+			{ name: "read", status: "error", arguments: { path: "/skills/failed/SKILL.md" } },
+			{ name: "read", status: "unfinished", arguments: { path: "/skills/pending/SKILL.md" } },
+			{ name: "read", status: "ok" },
+		] } } },
+		{ type: "message", message: { role: "toolResult", toolName: "flash", isError: true, details: { agent: "flash", started: true } } },
+		{ type: "message", message: { role: "toolResult", toolName: "flash", isError: true, details: { agent: "flash", started: false } } },
+		{ type: "message", message: { role: "toolResult", toolName: "flash", isError: true } },
+		{ type: "message", message: { role: "toolResult", toolName: "custom", details: { agent: "flash", started: true } } },
+	];
+	const usage = collectSessionUsage(entries);
+	assert.deepEqual([...usage.agents], [["flash", 2]]);
+	assert.deepEqual([...usage.skills], [["agently-mail", 1]]);
+	const line = renderClaudeFooter({ ...view, ...usage }, 160, plainTheme)[2];
+	assert.equal(line, "2 AGENTS.md | 2 MCPs | Agents flash ×2 | Skills agently-mail");
+});
+
 test("agents and skills sit after MCPs on the resources line only when used", () => {
 	const lines = renderClaudeFooter({ ...view,
 		agents: new Map([["titler", 2], ["subagent", 1]]),

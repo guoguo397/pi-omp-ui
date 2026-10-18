@@ -9,6 +9,7 @@
 - **消息背景**：已发送用户消息的背景向终端底色混合 20%，减弱色块对比；文字、输入框及其他消息背景不变，跟随主题和终端底色更新。随扩展默认启用，无独立开关。
 - **完成统计与标题**：整轮执行结束后，在输入框顶边居中显示“本轮耗时 · 会话累计耗时”；顶边右侧显示已有会话标题，不增加行数。
 - **状态栏**：展示模型、项目、Git、耗时、Context 进度条、上下文文件 / MCP 数、思考等级、用量、本轮平均输出速率和插件状态；有本轮工具调用记录时追加次数汇总。
+- **轻量任务子 agent**：主 agent 可将明确、低风险且仅需修改一个文件的任务委派给 `flash`，固定使用 `deepseek/deepseek-flash`、思考强度 `low`；主 agent 验收并运行测试。
 - **执行 / 计划模式**：`Shift+Tab` 在 `accept edits on` 与 `plan mode` 之间切换；计划模式限制工具调用，只分析并输出方案，不自动执行。
 
 界面和模式功能仅在交互式终端启用，不改变 RPC、JSON 或打印模式。执行模式不额外限制工具；计划模式在工具执行前进行拦截，不替换工具实现。包版本为 **2.0.0**，已在 **Pi 1.3.0** 验证，其他 Pi 版本尚未验证。本文描述当前源码行为，尚未发布的变更见 [更新日志](./CHANGELOG.md)。
@@ -18,7 +19,7 @@
 - 已安装 Pi；本项目不是独立应用，也不是 OMP 官方插件。
 - Node.js **22.19+**。
 - 使用 Pi 的交互式终端界面，支持 Fullscreen 和 Regular 模式。
-- 自动会话命名需要 Pi 中可用的 `deepseek/deepseek-flash` 模型与鉴权；不依赖 `pi-subagents`，缺少模型或鉴权不影响其他 UI 功能。
+- 自动会话命名和 `flash` 需要 Pi 中可用的 `deepseek/deepseek-flash` 模型与鉴权；不依赖 `pi-subagents`，缺少模型或鉴权不影响其他 UI 功能。
 
 ## 安装与更新
 
@@ -66,6 +67,15 @@ pi install git:github.com/guoguo397/pi-omp-ui@v2.0.0
 
 > 计划模式是工具调用层的工作流限制，不是操作系统沙箱。它不能约束受信任扩展自行执行的代码，也不能保证其他扩展重写的同名只读工具没有副作用。
 
+### 轻量任务子 agent：flash
+
+- 仅在交互式执行模式启用。主 agent 按风险、影响范围和不确定性判断任务，确认需求明确、风险低且**只需修改一个已知文件**后，通过 `flash` 工具委派；多文件任务（包括需要同时更新测试或文档）不委派，也不拆分绕过。此判定依赖主模型遵循指导，不是确定性的自动分类器。
+- 固定使用 `deepseek/deepseek-flash`、思考强度 `low`，不切换主对话模型。每次使用独立的进程内 `Agent`，继承当前有效系统提示和项目指令；任务上下文、范围及验收条件由主 agent 明确传入，不自动复制全部会话历史。与零工具、`high` 的标题子 agent `titler` 相互独立。
+- 只下放当前可调用的 `read` / `grep` / `find` / `ls` / `edit` / `write`，不重新启用禁用工具。可读多个文件，但写入前校验真实路径，`edit` / `write` 只能操作指定文件；不下放 Shell、Codemode、MCP 或递归委派。所有工具通过 Pi 的 `ctx.executeTool()` 分发，保留参数、权限和事件检查；计划模式仍禁止调用 `flash`。
+- 主 agent 核对结果并运行必要验证，`flash` 不运行测试。超过范围或需要澄清时应交回主 agent；模型不可用、鉴权失败或工具失败会明确报错，不静默换模型。限制为每次最多 8 轮模型请求、24 次工具调用、120 秒，同一会话仅运行一个 worker。
+- Escape 中止、会话切换、重载和树导航会取消执行。取消后不再启动操作，并等待已开始的文件操作结束；已发生的修改不会自动回滚或重跑，主 agent 必须先核对现场。单文件限制是工具边界而非操作系统沙箱，不能约束受信任扩展自行执行代码或重写工具的副作用。
+- 已启动调用通过工具结果记录，在资源行显示 `Agents flash` / `flash ×2`，可随会话记录恢复；启动前被拦截或模型缺失不计数。原生嵌套记录中的成功 `SKILL.md` 读取计入 Skills（嵌套记录被原生上限裁剪时可能不完整）。子模型已取得的用量计入会话 token / 费用，不混入主模型输出速率；忽略取消、始终不返回的供应商请求无法补记迟到用量。
+
 ### 工具展开
 
 - **Fullscreen**：点击工具卡或分组标题展开 / 折叠。
@@ -82,7 +92,7 @@ pi install git:github.com/guoguo397/pi-omp-ui@v2.0.0
 
 [Opus 5.5] | act git:(master) | ⏱ <1m
 Context ████░░░░░░░░░░░░ 25%
-2 AGENTS.md | 2 MCPs | Agents titler | Skills agently-mail
+2 AGENTS.md | 2 MCPs | Agents titler · flash ×2 | Skills agently-mail
 ✓ Read ×5 | ✓ PowerShell ×4 | ✓ Edit ×3
 ⏵⏵ accept edits on (shift+tab to cycle) · thinking high · ↑3.5k ↓200 · 42.6 tok/s · $0.0123
 ```
@@ -100,7 +110,7 @@ Context ████░░░░░░░░░░░░ 25%
 
 - 状态栏读取真实会话数据。Context 未知时显示 `?%`；MCP 数为提供可访问工具的命名空间数，不是配置总数。
 - 输入 / 输出用量为会话累计值，输入包含缓存读写，费用为零时隐藏。`Working` 只在输入框显示，底部不重复。
-- 资源行在 MCP 数后显示会话累计的子 agent 与技能调用（`Agents titler ×2 | Skills agently-mail`），同名重复调用标注次数，无记录时不占位。技能按模型读取 `SKILL.md` 的父目录名及 `/skill:` 命令统计；子 agent 包含名称匹配的子代理工具，以及本扩展不产生会话条目的 `titler`（按会话记录，`/reload` 后仍保留，历史会话中上一进程的记录不恢复）。
+- 资源行在 MCP 数后显示会话累计的子 agent 与技能调用（`Agents titler ×2 | Skills agently-mail`），同名重复调用标注次数，无记录时不占位。技能按模型读取 `SKILL.md` 的父目录名及 `/skill:` 命令统计，包含 `flash` 原生嵌套记录中的成功读取；子 agent 包含名称匹配的子代理工具、已启动的 `flash` 工具结果，以及本扩展不产生会话条目的 `titler`（按会话记录，`/reload` 后仍保留，历史会话中上一进程的记录不恢复）。
 - 保留其他插件状态。执行 / 计划是本扩展的两态工作流，不模拟 Claude Code 的完整权限系统，也不虚构代理数。
 - 支持主题配色和窄屏截断；其他扩展替换状态栏时不干扰对方。
 
@@ -140,7 +150,7 @@ pi remove git:github.com/guoguo397/pi-omp-ui
 
 ## 本地开发
 
-项目采用 JavaScript ES Modules，使用 Node.js 内置测试运行器，无单独构建步骤。三个 peer dependencies 为 `@earendil-works/pi-agent-core`、`@earendil-works/pi-coding-agent` 和 `@earendil-works/pi-tui`，运行时由 Pi 提供，本地开发时需安装。
+项目采用 JavaScript ES Modules，使用 Node.js 内置测试运行器，无单独构建步骤。四个 peer dependencies 为 `@earendil-works/pi-ai`、`@earendil-works/pi-agent-core`、`@earendil-works/pi-coding-agent` 和 `@earendil-works/pi-tui`，运行时由 Pi 提供，本地开发时需安装。
 
 在项目根目录执行：
 
@@ -172,6 +182,7 @@ extensions/
 │   ├── editor.js          # 输入框与图片路径标签
 │   ├── auto-title.js      # 自动会话命名触发、取消与标题清理
 │   ├── title-agent.js     # 内置 DeepSeek Flash high 标题子 agent
+│   ├── flash.js           # Flash low 单文件轻量任务子 agent 与委派工具
 │   ├── done.js            # 完成耗时统计
 │   ├── footer-icon.js     # 状态栏、用量与本轮统计
 │   ├── interaction-mode.js # 执行 / 计划切换、提示与工具拦截

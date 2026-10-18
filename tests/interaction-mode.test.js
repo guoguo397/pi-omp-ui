@@ -76,7 +76,7 @@ test("plan mode blocks edits, shells, codemode, MCP and unknown tools, including
 	for (const toolName of ["read", "grep", "find", "ls"]) {
 		assert.equal(session.emit("tool_call", { toolName, input: {} }), undefined);
 	}
-	for (const toolName of ["edit", "write", "bash", "powershell", "codemode", "tool_search", "custom", "mcp__mysql__read_query", "mcp__wordcraft__write", "tools.read", "Read"]) {
+	for (const toolName of ["edit", "write", "bash", "powershell", "codemode", "tool_search", "flash", "custom", "mcp__mysql__read_query", "mcp__wordcraft__write", "tools.read", "Read"]) {
 		for (const parentToolCallId of [undefined, "parent/1"]) {
 			const result = session.emit("tool_call", { toolName, parentToolCallId, input: {} });
 			assert.equal(result.block, true, toolName);

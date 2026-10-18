@@ -59,7 +59,7 @@ const SKILL_COMMAND = /^\/skill:([a-z0-9][a-z0-9-]*)/i;
 
 /**
  * 会话累计的子 agent 与技能调用：技能来自模型读取 SKILL.md 及 /skill: 命令，
- * 子 agent 来自名称匹配的子代理工具；进程内子 agent（如 titler）由 recordAgent 补充。
+ * flash 来自已启动的工具结果及原生嵌套记录；零工具 titler 由 recordAgent 补充。
  */
 export function collectSessionUsage(entries = []) {
 	const skills = new Map();
@@ -76,6 +76,11 @@ export function collectSessionUsage(entries = []) {
 				const name = String(part.name ?? "");
 				if (/^read$/i.test(name)) add(skills, skillNameFromPath(part.arguments?.path));
 				else if (SUB_AGENT_TOOL.test(name)) add(agents, name);
+			}
+		} else if (message?.role === "toolResult" && message.toolName === "flash") {
+			if (message.details?.agent === "flash" && message.details.started === true) add(agents, "flash");
+			for (const call of message.nestedCalls?.calls ?? []) {
+				if (call.name === "read" && call.status === "ok") add(skills, skillNameFromPath(call.arguments?.path));
 			}
 		} else if (message?.role === "user") {
 			const content = message.content;

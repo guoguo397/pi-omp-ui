@@ -4,6 +4,7 @@
 
 ### 新增
 
+- 新增 `flash` 轻量任务子 agent：交互式执行模式下，由主 agent 将明确、低风险且仅需修改一个已知文件的完整任务委派给 `deepseek/deepseek-flash`，固定思考强度 `low`。核心实现集中在 `lib/flash.js`；继承有效系统提示，只下放当前可调用的六个文件工具，真实路径校验限制单文件写入，全部经过 Pi 的嵌套分发与权限检查，不下放 Shell / Codemode / MCP 或递归委派，计划模式仍拦截。主 agent 负责验收与测试。支持取消、部分修改提示和执行上限；状态栏从已启动工具结果显示 `Agents flash` 及次数，读取到的技能和模型用量纳入相应统计，不改变 `titler`。
 - 状态栏资源行在 MCP 数后追加会话累计的子 agent 与技能调用（如 `Agents titler ×2 | Skills agently-mail`），无记录时不占位。技能来自模型读取 `SKILL.md` 及 `/skill:` 命令；子 agent 包含名称匹配的子代理工具及本扩展的 `titler`，后者按会话 ID 记录，重载后仍保留。
 - 新增执行 / 计划两态交互：状态栏显示 `⏵⏵ accept edits on` 或 `⏸ plan mode`，`Shift+Tab` 切换，提供 `/omp-mode execute|plan|status`。仅在交互式终端启用，空闲时可切换，模式随会话分支保存；输入框或状态栏被其他扩展替换时不解除计划限制。计划模式注入只读规划提示，仅允许 `read` / `grep` / `find` / `ls`，拦截 Shell、Codemode、MCP、其他工具及 Pi 分发的嵌套调用和手动 Shell 命令；计划完成后不自动执行。接管原本切换思考等级的 `Shift+Tab`，不增加第三种模式或完整权限系统。
 - 输入框顶边右半段显示会话标题，通过 `pi.getSessionName()` 实时读取 `/name` 或 `pi.setSessionName()` 设置的名称；保留居中耗时及原生提示，窄屏截断或隐藏，无标题时保持横线。未命名会话在首轮正常交互结束后，自动调用内置 `titler` 子 agent，固定使用 `deepseek/deepseek-flash`、默认思考强度 `high`，根据用户输入与 AI 回复在后台概括简短标题，不再直接截取首条输入；最长 40 字符，已有标题和手动命名不覆盖。子 agent 通过 Pi 的 `Agent` SDK 在进程内独立运行，不依赖 `pi-subagents`，不启动 Shell，不加载工具、扩展、skills 或项目 / 全局指令，不持久化子会话；仅复用模型注册表与鉴权，不阻塞或污染主对话。失败或 120 秒超时保持未命名，每个会话最多警告一次，后续交互可重试，不回退到主模型或输入原文；切换会话、重载、树导航或手动改名会取消旧请求，并丢弃迟到结果。

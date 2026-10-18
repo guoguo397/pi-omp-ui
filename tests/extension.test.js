@@ -19,6 +19,7 @@ after(() => rmSync(agentDir, { recursive: true, force: true }));
 function mock(mode) {
 	const events = new Map();
 	const commands = new Map();
+	const tools = new Map();
 	const notifications = [];
 	let editor;
 	let editorInstance;
@@ -58,10 +59,12 @@ function mock(mode) {
 		setSessionName: (name) => { sessionName = name; },
 		on(name, handler) { if (!events.has(name)) events.set(name, []); events.get(name).push(handler); },
 		registerCommand(name, command) { commands.set(name, command); },
+		registerTool(tool) { tools.set(tool.name, tool); },
+		getActiveTools: () => [...tools.keys()],
 		appendEntry() {},
 	});
 	return {
-		ctx, commands, notifications, branch, titleRequests, titleHost,
+		ctx, commands, tools, notifications, branch, titleRequests, titleHost,
 		setSessionName(name) { sessionName = name; },
 		get editor() { return editorInstance; },
 		get footer() { return footer; },
@@ -87,6 +90,7 @@ test("all features stay enabled across reloads without UI switch commands or set
 			assert.notEqual(ToolExecutionComponent.prototype.render, originalRender);
 			assert.notEqual(FooterComponent.prototype.render, originalFooterRender);
 			assert.ok(session.editor instanceof OmpEditor);
+			assert.deepEqual([...session.tools.keys()], ["flash"]);
 			assert.equal(session.footer, undefined, "custom footers are left untouched");
 			await session.emit("input", { text: "需要优化工具分组和状态栏的显示", source: "interactive" });
 			assert.doesNotMatch(session.editor.render(200)[0], /需要优化/);
@@ -147,6 +151,7 @@ test("non-TUI sessions never install terminal UI or create settings", async () =
 			await session.emit("before_agent_start");
 			await session.emit("agent_settled");
 			assert.deepEqual(session.titleRequests, []);
+			assert.equal(session.tools.size, 0, "non-TUI modes do not gain a worker tool");
 			assert.equal(ToolExecutionComponent.prototype.render, originalRender);
 			assert.equal(FooterComponent.prototype.render, originalFooterRender);
 			assert.equal(session.ctx.ui.getEditorComponent(), undefined);

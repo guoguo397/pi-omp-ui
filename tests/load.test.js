@@ -13,6 +13,6 @@ test("Pi's real extension loader loads the package with only the interaction mod
 		assert.equal(loaded.extensions.length, 1);
 		const commands = loaded.extensions[0].commands;
 		assert.deepEqual([...commands.keys()], ["omp-mode"]);
-		assert.equal(loaded.extensions[0].tools.size, 0, "UI must not replace tool execution");
+		assert.equal(loaded.extensions[0].tools.size, 0, "flash is registered only when a TUI session starts");
 	} finally { rmSync(directory, { recursive: true, force: true }); }
 });

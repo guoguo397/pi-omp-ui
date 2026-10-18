@@ -2,6 +2,7 @@ import { OmpEditor } from "./lib/editor.js";
 import { registerAutoTitle } from "./lib/auto-title.js";
 import { registerDone } from "./lib/done.js";
 import { registerFooterIcon } from "./lib/footer-icon.js";
+import { registerFlash } from "./lib/flash.js";
 import { registerInteractionMode } from "./lib/interaction-mode.js";
 import { TITLE_AGENT_NAME } from "./lib/title-agent.js";
 import { registerUserMessageStyle } from "./lib/user-message.js";
@@ -12,6 +13,7 @@ export { OmpEditor };
 export default function ompEditorExtension(pi) {
 	registerToolUi(pi);
 	const interactionMode = registerInteractionMode(pi);
+	registerFlash(pi, interactionMode);
 	const footer = registerFooterIcon(pi, interactionMode);
 	registerUserMessageStyle(pi);
 	let previousFactory;
