@@ -109,15 +109,18 @@ test("tool usage counts saved results once, including failed, custom and nested 
 	assert.equal(usage.total, 6);
 	assert.deepEqual([...usage.counts], [["read", 3], ["codemode", 1], ["edit", 1], ["mcp__wordcraft__open", 1]]);
 	assert.equal(usage.incomplete, false);
-	assert.deepEqual(collectToolUsage(), { total: 0, counts: new Map(), incomplete: false });
+	assert.deepEqual([...usage.outcomes], [["read", "error"], ["codemode", "ok"], ["edit", "ok"], ["mcp__wordcraft__open", "ok"]]);
+	assert.deepEqual(collectToolUsage(), { total: 0, counts: new Map(), incomplete: false, outcomes: new Map() });
 });
 
-test("tool summary appends one compact row, sorted by frequency and clipped safely", () => {
+test("Claude-style tool summary sits above status, sorted by frequency and clipped safely", () => {
 	const toolUsage = { total: 12, counts: new Map([["read", 5], ["edit", 3], ["powershell", 4]]) };
 	const lines = renderClaudeFooter({ ...view, toolUsage }, 120, plainTheme);
 	assert.equal(lines.length, 5);
-	assert.equal(lines[4], "Tools 12 · Read×5 · PowerShell×4 · Edit×3");
-	assert.deepEqual(lines.slice(0, 4), renderClaudeFooter(view, 120, plainTheme));
+	assert.equal(lines[3], "✓ Read ×5 | ✓ PowerShell ×4 | ✓ Edit ×3");
+	assert.deepEqual([...lines.slice(0, 3), lines[4]], renderClaudeFooter(view, 120, plainTheme));
+	assert.doesNotMatch(lines[3], /Tools|12/);
+	assert.equal(renderClaudeFooter({ ...view, toolUsage: { total: 20, counts: new Map([["read", 19], ["bash", 1]]) } }, 120, plainTheme)[3], "✓ Read ×19 | ✓ Bash ×1");
 	assert.equal(renderClaudeFooter({ ...view, toolUsage: collectToolUsage() }, 120, plainTheme).length, 4);
 	const theme = { fg: (_token, text) => `\x1b[32m${text}\x1b[0m` };
 	const custom = { total: 1, counts: new Map([["自定义😀\n\x1b[31m工具", 1]]) };
@@ -134,7 +137,27 @@ test("incomplete native nested records are shown as a lower bound", () => {
 		role: "toolResult", toolName: "codemode", nestedCalls: { calls: [{ name: "read" }], complete: false },
 	} }]);
 	assert.equal(toolUsage.incomplete, true);
-	assert.match(renderClaudeFooter({ ...view, toolUsage }, 120, plainTheme)[4], /^Tools ≥2/);
+	assert.equal(renderClaudeFooter({ ...view, toolUsage }, 120, plainTheme)[3], "≥ ✓ Codemode ×1 | ✓ Read ×1");
+});
+
+test("tool markers use live theme colors and never mark failed or unfinished calls as successful", () => {
+	const toolUsage = collectToolUsage([
+		{ type: "message", message: { role: "toolResult", toolName: "read", isError: true } },
+		{ type: "message", message: { role: "toolResult", toolName: "read" } },
+		{ type: "message", message: { role: "toolResult", toolName: "codemode", nestedCalls: {
+			calls: [{ name: "edit", status: "unfinished" }, { name: "write", status: "error" }, { name: "write", status: "unfinished" }], complete: false,
+		} } },
+	]);
+	const theme = { fg: (token, text) => `<${token}>${text}</${token}>` };
+	const row = renderClaudeFooter({ ...view, toolUsage, outputSpeed: 42.6 }, 1000, theme)[3];
+	assert.match(row, /<error>✗<\/error> <muted>Read<\/muted> <dim>×2<\/dim>/);
+	assert.match(row, /<error>✗<\/error> <muted>Write<\/muted>/);
+	assert.match(row, /<warning>!<\/warning> <muted>Edit<\/muted>/);
+	assert.match(row, /<success>✓<\/success> <muted>Codemode<\/muted>/);
+	assert.match(row, /<dim> \| <\/dim>/);
+	const lines = renderClaudeFooter({ ...view, toolUsage, outputSpeed: 42.6 }, 120, plainTheme);
+	assert.match(lines[4], /↓200 · 42\.6 tok\/s/, "usage and speed remain together on the last line");
+	assert.match(renderClaudeFooter({ ...view, toolUsage }, 1000, { fg: (_token, text) => text })[3], /✗ Read ×2/);
 });
 
 function response(output, durationMs, stopReason = "stop") {
@@ -278,7 +301,7 @@ test("tool summary resets each run, retains settled results and avoids per-frame
 		entries.push({ type: "message", message: { role: "toolResult", toolName: "codemode", nestedCalls: {
 			calls: [{ name: "edit" }, { name: "read" }], complete: true,
 		} } });
-		assert.equal(footer.render(120)[4], "Tools 3 · Codemode×1 · Edit×1 · Read×1");
+		assert.equal(footer.render(120)[3], "✓ Codemode ×1 | ✓ Edit ×1 | ✓ Read ×1");
 		const previous = scans;
 		footer.render(100);
 		footer.render(120);
@@ -287,20 +310,20 @@ test("tool summary resets each run, retains settled results and avoids per-frame
 		await session.emit("before_agent_start");
 		assert.equal(footer.render(120).length, 4, "new run resets even before entries change");
 		entries.push({ type: "message", message: { role: "toolResult", toolName: "read", isError: true } });
-		assert.equal(footer.render(120)[4], "Tools 1 · Read×1");
+		assert.equal(footer.render(120)[3], "✗ Read ×1");
 		await session.emit("agent_end");
 		entries.push({ type: "message", message: { role: "toolResult", toolName: "write" } });
-		assert.equal(footer.render(120)[4], "Tools 2 · Read×1 · Write×1", "continuation before settlement stays in this run");
+		assert.equal(footer.render(120)[3], "✗ Read ×1 | ✓ Write ×1", "continuation before settlement stays in this run");
 		await session.emit("agent_settled");
-		assert.match(footer.render(120)[4], /^Tools 2/);
+		assert.equal(footer.render(120)[3], "✗ Read ×1 | ✓ Write ×1");
 		await session.commands.get("omp-footer").handler("off", session.ctx);
 		await session.commands.get("omp-footer").handler("on", session.ctx);
-		assert.match(footer.render(120)[4], /^Tools 2/, "footer toggle does not reset the run");
+		assert.equal(footer.render(120)[3], "✗ Read ×1 | ✓ Write ×1", "footer toggle does not reset the run");
 
 		await session.emit("before_agent_start");
 		assert.equal(footer.render(120).length, 4);
 		entries.push({ type: "compaction" }, { type: "message", message: { role: "toolResult", toolName: "edit" } });
-		assert.equal(footer.render(120)[4], "Tools 1 · Edit×1");
+		assert.equal(footer.render(120)[3], "✓ Edit ×1");
 		await session.emit("session_start");
 		assert.equal(footer.render(120).length, 4, "reload clears current-run stats");
 		entries = [];

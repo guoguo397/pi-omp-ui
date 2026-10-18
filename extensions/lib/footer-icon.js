@@ -50,22 +50,27 @@ export function countMcpServers(tools = []) {
 /** 按已保存的工具结果累计调用，避免把 assistant 的请求和结果重复计算。 */
 export function collectToolUsage(entries = []) {
 	const counts = new Map();
+	const outcomes = new Map();
 	let total = 0;
 	let incomplete = false;
-	const add = (name) => {
+	const add = (name, status = "ok") => {
 		if (typeof name !== "string" || !name) return;
 		counts.set(name, (counts.get(name) ?? 0) + 1);
+		// 同名工具只要存在失败就不能显示绿色成功标记，未完成记录次之。
+		if (status === "error" || !outcomes.has(name) || (status === "unfinished" && outcomes.get(name) !== "error")) {
+			outcomes.set(name, status);
+		}
 		total++;
 	};
 	for (const entry of entries) {
 		if (entry.type !== "message" || entry.message?.role !== "toolResult") continue;
 		const message = entry.message;
-		add(message.toolName);
+		add(message.toolName, message.isError ? "error" : "ok");
 		// 原生记录包含各层嵌套调用；不再叠加 details.calls，以免重复或混入模型调用。
-		for (const call of message.nestedCalls?.calls ?? []) add(call.name);
+		for (const call of message.nestedCalls?.calls ?? []) add(call.name, call.status);
 		if (message.nestedCalls?.complete === false) incomplete = true;
 	}
-	return { total, counts, incomplete };
+	return { total, counts, incomplete, outcomes };
 }
 
 /** 本轮成功响应的加权平均输出速率；使用 Pi 原生请求耗时，不混入工具或调用间等待。 */
@@ -88,7 +93,7 @@ export function collectOutputSpeed(entries = []) {
 	return Number.isFinite(speed) && speed > 0 ? speed : undefined;
 }
 
-/** 纯渲染函数：主题颜色在每次 render 时重新计算，有调用记录时追加工具汇总行。 */
+/** 纯渲染函数：主题颜色在每次 render 时重新计算，有调用记录时在状态行前插入工具汇总。 */
 export function renderClaudeFooter(view, width, theme) {
 	const columns = Math.max(0, Math.floor(width));
 	const fg = (token, text) => theme.fg(token, text);
@@ -133,13 +138,18 @@ export function renderClaudeFooter(view, width, theme) {
 		// 插件状态允许保留颜色，但不允许换行。
 		status.push(String(value).replace(/[\r\n\t]/g, " "));
 	}
-	const lines = [header, context, resources, status.join(fg("dim", " · "))];
+	const lines = [header, context, resources];
 	if (view.toolUsage?.total > 0) {
 		const usage = view.toolUsage;
 		const tools = [...usage.counts].sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
-			.map(([name, count]) => `${COMPACT_TOOLS.has(name) ? title(name) : singleLine(name)}×${count}`);
-		lines.push(fg("dim", `Tools ${usage.incomplete ? "≥" : ""}${usage.total} · ${tools.join(" · ")}`));
+			.map(([name, count]) => {
+				const outcome = usage.outcomes?.get(name);
+				const icon = outcome === "error" ? fg("error", "✗") : outcome === "unfinished" ? fg("warning", "!") : fg("success", "✓");
+				return `${icon} ${fg("muted", COMPACT_TOOLS.has(name) ? title(name) : singleLine(name))} ${fg("dim", `×${count}`)}`;
+			});
+		lines.push((usage.incomplete ? fg("warning", "≥ ") : "") + tools.join(separator));
 	}
+	lines.push(status.join(fg("dim", " · ")));
 	return lines.map((line) => columns === 0 ? "" : truncateToWidth(line, columns, "…"));
 }
 
