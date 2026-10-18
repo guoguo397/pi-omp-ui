@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
+import { createTitleAgentHost, titleResponse } from "./helpers/title-agent-host.js";
 
 // 在加载 Pi 配置模块前隔离 agent 目录，测试绝不修改用户的真实配置。
 const agentDir = mkdtempSync(join(tmpdir(), "omp-extension-"));
@@ -25,18 +26,15 @@ function mock(mode) {
 	let renders = 0;
 	let sessionName;
 	const branch = [];
-	const titleRequests = [];
+	const titleHost = createTitleAgentHost();
+	const titleRequests = titleHost.requests;
 	const tui = { terminal: { rows: 30 }, requestRender() { renders++; } };
 	const ctx = {
 		mode,
+		cwd: process.cwd(),
 		isIdle: () => true,
 		model: { id: "test-model" },
-		modelRegistry: {
-			streamSimple(model, context, options) {
-				titleRequests.push({ model, context, options });
-				return { result: async () => ({ stopReason: "stop", content: [{ type: "text", text: "AI 概括的会话标题" }] }) };
-			},
-		},
+		modelRegistry: titleHost.modelRegistry,
 		sessionManager: { getEntries: () => [], getBranch: () => branch, getSessionId: () => "test-session" },
 		ui: {
 			theme: { fg: (_token, text) => text, bg: (_token, text) => text, bold: (text) => text },
@@ -63,7 +61,7 @@ function mock(mode) {
 		appendEntry() {},
 	});
 	return {
-		ctx, commands, notifications, branch, titleRequests,
+		ctx, commands, notifications, branch, titleRequests, titleHost,
 		setSessionName(name) { sessionName = name; },
 		get editor() { return editorInstance; },
 		get footer() { return footer; },
@@ -101,7 +99,7 @@ test("all features stay enabled across reloads without UI switch commands or set
 			await new Promise((resolve) => setImmediate(resolve));
 			assert.match(session.editor.render(200)[0], /本轮 .*会话累计 .*AI 概括的会话标题/);
 			assert.equal(session.titleRequests.length, 1);
-			assert.match(session.titleRequests[0].context.messages[0].content, /已调整工具分组和状态栏/);
+			assert.match(session.titleRequests[0].context.messages[1].content[0].text, /已调整工具分组和状态栏/);
 			assert.deepEqual(session.notifications, []);
 			assert.equal(existsSync(settingsPath), false, "no settings file is created");
 		} finally {
@@ -213,7 +211,7 @@ test("completion is rendered in the editor border without duplicate notification
 test("a background AI title requests a redraw after completion statistics are already visible", async () => {
 	const session = mock("tui");
 	const deferred = Promise.withResolvers();
-	session.ctx.modelRegistry.streamSimple = () => ({ result: () => deferred.promise });
+	session.titleHost.setResult(() => deferred.promise);
 	try {
 		await session.emit("session_start");
 		await new Promise((resolve) => setTimeout(resolve, 5));
@@ -227,7 +225,7 @@ test("a background AI title requests a redraw after completion statistics are al
 		assert.match(session.editor.render(200)[0], /本轮 .*会话累计/);
 		assert.doesNotMatch(session.editor.render(200)[0], /修复登录状态/);
 		const renders = session.renders;
-		deferred.resolve({ stopReason: "stop", content: [{ type: "text", text: "修复登录状态" }] });
+		deferred.resolve(titleResponse("修复登录状态"));
 		await new Promise((resolve) => setImmediate(resolve));
 		assert.ok(session.renders > renders);
 		assert.match(session.editor.render(200)[0], /本轮 .*会话累计 .*修复登录状态/);
