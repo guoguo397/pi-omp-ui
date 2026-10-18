@@ -59,7 +59,8 @@ export function callSummary(name, input) {
 		case "bash":
 		case "powershell": return oneLine(args.command);
 		case "tool_search": return oneLine(args.query);
-		case "codemode": return oneLine(String(args.code ?? "").split("\n").find((line) => line.trim() && !line.trim().startsWith("//")));
+		// 脚本仅在展开后的完整输入中展示，不把实现代码作为标题摘要。
+		case "codemode": return "";
 		default: return path != null ? displayPath(path) : oneLine(args.query ?? args.command ?? args.preview ?? JSON.stringify(args));
 	}
 }

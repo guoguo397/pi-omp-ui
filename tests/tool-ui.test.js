@@ -124,6 +124,40 @@ test("tool summaries shorten home paths and hide Read ranges, while expanded inp
 	assert.doesNotMatch(plainLines(code).join("\n"), /offset=|limit=/);
 });
 
+test("codemode titles hide script previews without changing progress, results or expanded input", () => {
+	install();
+	const code = 'const results = await Promise.allSettled([\n  tools.read({ path: "package.json" })\n]);';
+	const args = { code };
+	assert.equal(callSummary("codemode", args), "");
+	assert.equal(callSummary("codemode", JSON.stringify(args)), "");
+	assert.equal(callSummary("codemode", { code: "await tools.ls({});" }), "");
+	const value = tool("codemode", args, { pending: true });
+	const pending = plainLines(value).join("\n");
+	assert.match(pending, /Codemode/);
+	assert.doesNotMatch(pending, /const results|Promise\.allSettled/);
+	const result = { content: [{ type: "text", text: "package loaded" }], durationMs: 23, details: {
+		calls: [{ name: "read", args: { path: "package.json" }, status: "ok", durationMs: 20 }],
+	} };
+	value.updateResult(result);
+	const completed = plainLines(value);
+	assert.equal(completed[1].trim(), "✓ Codemode");
+	assert.match(completed.join("\n"), /Read package\.json/);
+	assert.match(completed.join("\n"), /1 calls · 1 lines output · 23ms/);
+	const group = new Container();
+	group.addChild(value);
+	group.addChild(tool("ls", { path: "." }));
+	const grouped = plainLines(group).join("\n");
+	assert.doesNotMatch(grouped, /const results|Promise\.allSettled/);
+	assert.match(grouped, /Codemode 1 calls · 1 lines output/);
+	value.setExpanded(true);
+	const expanded = plainLines(value, 240).join("\n");
+	assert.match(expanded, /Input[\s\S]*const results = await Promise\.allSettled\(\[/);
+	assert.match(expanded, /Output[\s\S]*package loaded/);
+	assert.equal(value.args, args);
+	assert.equal(value.args.code, code);
+	assert.equal(value.result, result);
+});
+
 test("expanded group mouse events reach the correct child after resize", () => {
 	install();
 	const container = new Container();
