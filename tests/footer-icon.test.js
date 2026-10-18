@@ -17,7 +17,7 @@ after(() => {
 	rmSync(directory, { recursive: true, force: true });
 });
 
-function create(mode = "tui") {
+function create(mode = "tui", options) {
 	const handlers = new Map();
 	const commands = new Map();
 	const notifications = [];
@@ -28,7 +28,7 @@ function create(mode = "tui") {
 	registerFooterIcon({
 		on: (name, handler) => handlers.set(name, handler),
 		registerCommand: (name, command) => commands.set(name, command),
-	});
+	}, options);
 	return {
 		ctx, commands, notifications,
 		emit: async (name) => handlers.get(name)?.({}, ctx),
@@ -416,4 +416,24 @@ test("disabled setting stays native across sessions and non-TUI modes never patc
 		assert.equal(FooterComponent.prototype.render, originalRender);
 		await nonTui.emit("session_shutdown");
 	}
+});
+
+test("native footer reads live interaction mode without caching or duplicating fallback status", async () => {
+	let mode = "execute";
+	const session = create("tui", { getMode: () => mode });
+	const footer = new FooterComponent({ state: {}, sessionManager: { getCwd: () => "/repo" } }, {
+		getGitBranch: () => null,
+		getExtensionStatuses: () => new Map([["omp-interaction-mode", "fallback mode"], ["other", "real plugin"]]),
+	});
+	footer.getSessionStats = () => ({ usageTotals: view.usage });
+	try {
+		await session.emit("session_start");
+		assert.match(footer.render(200)[3], /^⏵⏵ accept edits on.*real plugin$/);
+		assert.doesNotMatch(footer.render(200)[3], /fallback mode/);
+		mode = "plan";
+		assert.match(footer.render(200)[3], /^⏸ plan mode.*real plugin$/);
+		await session.commands.get("omp-footer").handler("off", session.ctx);
+		await session.commands.get("omp-footer").handler("on", session.ctx);
+		assert.match(footer.render(200)[3], /^⏸ plan mode/);
+	} finally { await session.emit("session_shutdown"); }
 });

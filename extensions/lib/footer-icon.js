@@ -2,6 +2,7 @@ import { FooterComponent } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
 import { readSettings, updateSettings } from "./settings.js";
 import { COMPACT_TOOLS, title } from "../tool-ui/format.js";
+import { MODE_STATUS, modeLabel } from "./interaction-mode.js";
 
 /**
  * Claude Code 风格状态栏。沿用旧模块名和配置键，兼容已保存的开关。
@@ -123,7 +124,11 @@ export function renderClaudeFooter(view, width, theme) {
 
 	// 运行进度由输入框显示，底部不再重复 working；空闲及压缩状态仍保留。
 	const state = view.compacting ? "compacting" : view.busy ? "" : "ready";
-	const status = state ? [fg(view.compacting ? "warning" : "success", `▶ ${state}`)] : [];
+	const hasMode = view.interactionMode === "execute" || view.interactionMode === "plan";
+	const status = hasMode ? [
+		fg(view.interactionMode === "plan" ? "warning" : "thinkingHigh", modeLabel(view.interactionMode)) + fg("dim", " (shift+tab to cycle)"),
+	] : [];
+	if (state && (!hasMode || view.compacting)) status.push(fg(view.compacting ? "warning" : "success", `▶ ${state}`));
 	if (view.thinkingLevel) status.push(fg("muted", `thinking ${singleLine(view.thinkingLevel)}`));
 	if (view.usage) {
 		const usage = view.usage;
@@ -134,7 +139,8 @@ export function renderClaudeFooter(view, width, theme) {
 		if (usage.cost > 0) status.push(fg("dim", `$${usage.cost.toFixed(4)}`));
 	}
 	// 不猜测子代理数或权限模式，原样保留其他扩展通过 setStatus 提供的内容。
-	for (const [, value] of [...(view.statuses ?? [])].sort(([a], [b]) => a.localeCompare(b))) {
+	for (const [key, value] of [...(view.statuses ?? [])].sort(([a], [b]) => a.localeCompare(b))) {
+		if (hasMode && key === MODE_STATUS) continue;
 		// 插件状态允许保留颜色，但不允许换行。
 		status.push(String(value).replace(/[\r\n\t]/g, " "));
 	}
@@ -202,7 +208,7 @@ function installFooterPatch(getView, getTheme) {
 	return patch;
 }
 
-export function registerFooterIcon(pi) {
+export function registerFooterIcon(pi, { getMode = () => undefined } = {}) {
 	let enabled = readSettings().footerIconEnabled !== false;
 	let patch;
 	let startedAt = Date.now();
@@ -220,7 +226,7 @@ export function registerFooterIcon(pi) {
 		if (ctx.mode !== "tui" || !enabled || patch) return;
 		activeContext = ctx;
 		patch = installFooterPatch(
-			() => ({ elapsedMs: Date.now() - startedAt, busy, toolStart, outputSpeed }),
+			() => ({ elapsedMs: Date.now() - startedAt, busy, toolStart, outputSpeed, interactionMode: getMode() }),
 			() => activeContext.ui.theme,
 		);
 	};

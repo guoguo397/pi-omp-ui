@@ -3,6 +3,7 @@ import { registerAutoTitle } from "./lib/auto-title.js";
 import { readSettings, updateSettings } from "./lib/settings.js";
 import { registerDone } from "./lib/done.js";
 import { registerFooterIcon } from "./lib/footer-icon.js";
+import { registerInteractionMode } from "./lib/interaction-mode.js";
 import { registerUserMessageStyle } from "./lib/user-message.js";
 import { registerToolUi } from "./tool-ui/extension.js";
 
@@ -11,7 +12,8 @@ export { OmpEditor };
 export default function ompEditorExtension(pi) {
 	registerToolUi(pi);
 	registerAutoTitle(pi);
-	registerFooterIcon(pi);
+	const interactionMode = registerInteractionMode(pi);
+	registerFooterIcon(pi, interactionMode);
 	registerUserMessageStyle(pi);
 	let previousFactory;
 	let enabled = readSettings().enabled !== false;

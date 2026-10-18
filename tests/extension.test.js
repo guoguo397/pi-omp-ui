@@ -24,10 +24,13 @@ function mock(mode) {
 	const tui = { terminal: { rows: 30 }, requestRender() { renders++; } };
 	const ctx = {
 		mode,
-		sessionManager: { getEntries: () => [] },
+		isIdle: () => true,
+		sessionManager: { getEntries: () => [], getBranch: () => [] },
 		ui: {
 			theme: { fg: (_token, text) => text, bg: (_token, text) => text, bold: (text) => text },
 			notify: (text) => notifications.push(text),
+			setStatus() {},
+			onTerminalInput: () => () => {},
 			getEditorComponent: () => editor,
 			setEditorComponent: (factory) => {
 				editor = factory;
@@ -44,6 +47,7 @@ function mock(mode) {
 		getSessionName: () => sessionName,
 		on(name, handler) { if (!events.has(name)) events.set(name, []); events.get(name).push(handler); },
 		registerCommand(name, command) { commands.set(name, command); },
+		appendEntry() {},
 	});
 	return {
 		ctx, commands, notifications,
@@ -51,7 +55,7 @@ function mock(mode) {
 		get editor() { return editorInstance; },
 		get footer() { return footer; },
 		get renders() { return renders; },
-		async emit(name) { for (const handler of events.get(name) ?? []) await handler({}, ctx); },
+		async emit(name) { for (const handler of events.get(name) ?? []) await handler({ systemPromptOptions: { sections: {} } }, ctx); },
 	};
 }
 
@@ -60,10 +64,10 @@ test("entry point re-exports the standalone editor component", async () => {
 	assert.equal(OmpEditor, component);
 });
 
-test("entry point registers all four features, persists independent switches and cleans up reloads", async () => {
+test("entry point registers UI switches and interaction modes, persists independent switches and cleans up reloads", async () => {
 	try {
 		const first = mock("tui");
-		assert.deepEqual([...first.commands.keys()].sort(), ["omp-done", "omp-editor", "omp-footer", "omp-tools"]);
+		assert.deepEqual([...first.commands.keys()].sort(), ["omp-done", "omp-editor", "omp-footer", "omp-mode", "omp-tools"]);
 		await first.emit("session_start");
 		await new Promise((resolve) => setTimeout(resolve, 5));
 		assert.notEqual(ToolExecutionComponent.prototype.render, originalRender);

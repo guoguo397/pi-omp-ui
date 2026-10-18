@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
 
-test("Pi's real extension loader loads the standalone package entry with all four commands", async () => {
+test("Pi's real extension loader loads the standalone package entry with UI and mode commands", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "omp-load-"));
 	try {
 		const loaded = await discoverAndLoadExtensions([resolve("extensions/omp-editor.js")], directory, directory);
@@ -16,6 +16,7 @@ test("Pi's real extension loader loads the standalone package entry with all fou
 		assert.ok(commands.has("omp-tools"));
 		assert.ok(commands.has("omp-done"));
 		assert.ok(commands.has("omp-footer"));
+		assert.ok(commands.has("omp-mode"));
 		assert.equal(loaded.extensions[0].tools.size, 0, "UI must not replace tool execution");
 	} finally { rmSync(directory, { recursive: true, force: true }); }
 });
