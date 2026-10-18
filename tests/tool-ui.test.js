@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
+import { homedir } from "node:os";
 import { AssistantMessageComponent, ToolExecutionComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { installToolUi } from "../extensions/tool-ui/runtime.js";
-import { callSummary, outputText, plain, resultSummary } from "../extensions/tool-ui/format.js";
+import { callSummary, displayPath, outputText, plain, resultSummary } from "../extensions/tool-ui/format.js";
 import { diffStats, parseDiff, renderDiffRows } from "../extensions/tool-ui/diff.js";
 
 initTheme("dark");
@@ -81,6 +82,45 @@ test("groups are render-only projections and preserve native tool traversal", ()
 	assert.deepEqual(container.render(120), []);
 });
 
+test("display paths abbreviate only the user's home directory with correct path boundaries", () => {
+	assert.equal(displayPath("C:/Users/hy/.pi/docs/extensions.md", "C:\\Users\\hy"), "~/.pi/docs/extensions.md");
+	assert.equal(displayPath("c:\\users\\HY\\docs\\中文😀.md", "C:/Users/hy/"), "~/docs/中文😀.md");
+	assert.equal(displayPath("C:/Users/hy", "C:/Users/hy"), "~");
+	assert.equal(displayPath("C:/Users/hy-other/file.md", "C:/Users/hy"), "C:/Users/hy-other/file.md");
+	assert.equal(displayPath("D:/repo/file.md", "C:/Users/hy"), "D:/repo/file.md");
+	assert.equal(displayPath("/home/hy/docs/file.md", "/home/hy"), "~/docs/file.md");
+	assert.equal(displayPath("/home/HY/docs/file.md", "/home/hy"), "/home/HY/docs/file.md");
+	assert.equal(displayPath("src/file.md", "/home/hy"), "src/file.md");
+	assert.equal(displayPath(undefined, "/home/hy"), "");
+	assert.equal(displayPath("C:/Users/hy/\x1b[31mdoc\nfile.md", "C:/Users/hy"), "~/doc file.md");
+});
+
+test("tool summaries shorten home paths and hide Read ranges, while expanded input stays complete", () => {
+	install();
+	const path = `${homedir().replace(/\\/g, "/")}/docs/extensions.md`;
+	for (const name of ["read", "ls", "edit", "write"]) {
+		assert.equal(callSummary(name, { path, offset: 1, limit: 450 }), "~/docs/extensions.md");
+	}
+	assert.equal(callSummary("read", JSON.stringify({ file_path: path, offset: 1, limit: 450 })), "~/docs/extensions.md");
+	assert.equal(callSummary("find", { path, pattern: "*.md" }), "*.md in ~/docs/extensions.md");
+	assert.equal(callSummary("grep", { path, pattern: "events" }), '"events" in ~/docs/extensions.md');
+	const args = { path, offset: 1, limit: 450 };
+	const value = tool("read", args);
+	assert.match(plainLines(value).join("\n"), /Read ~\/docs\/extensions\.md/);
+	assert.doesNotMatch(plainLines(value).join("\n"), /offset|limit/);
+	value.setExpanded(true);
+	const output = plainLines(value, 240).join("\n");
+	assert.ok(output.includes(path), "expanded input must retain the full path");
+	assert.match(output, /"offset": 1/);
+	assert.match(output, /"limit": 450/);
+	assert.deepEqual(args, { path, offset: 1, limit: 450 }, "display changes must not mutate tool arguments");
+	const code = tool("codemode", {}, { result: { details: { calls: [
+		{ name: "read", args: JSON.stringify(args), status: "ok" },
+	] } } });
+	assert.match(plainLines(code).join("\n"), /Read ~\/docs\/extensions\.md/);
+	assert.doesNotMatch(plainLines(code).join("\n"), /offset=|limit=/);
+});
+
 test("expanded group mouse events reach the correct child after resize", () => {
 	install();
 	const container = new Container();
@@ -156,7 +196,7 @@ test("width safety for CJK, emoji, tabs, ANSI and expanded output", () => {
 	}
 	assert.equal(plain("a\x1b[2J\x00\r\nb"), "a\nb");
 	assert.equal(callSummary("read", { path: "a", offset: null, limit: null }), "a");
-	assert.equal(callSummary("read", { path: "a", offset: 0, limit: 20 }), "a (offset=0, limit=20)");
+	assert.equal(callSummary("read", { path: "a", offset: 0, limit: 20 }), "a");
 });
 
 const details = { patch: "--- file\n+++ file\n@@ -1,3 +1,4 @@\n one\n-two\n+二😀\n+extra\n three\n@@ -10,1 +11,1 @@\n-ten\n+十一\n" };

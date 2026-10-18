@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 
 export const COMPACT_TOOLS = new Set([
@@ -14,6 +15,19 @@ export function plain(value) {
 
 export function oneLine(value, limit = 300) {
 	return plain(String(value ?? "").slice(0, limit * 4)).replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+/** 只缩写完整主目录边界；保留其他目录的完整路径，避免误把 hy-other 当作 hy。 */
+export function displayPath(value, home = homedir()) {
+	const original = String(value ?? "");
+	const path = original.replace(/\\/g, "/");
+	const root = String(home).replace(/\\/g, "/").replace(/\/+$/, "");
+	const windows = /^[a-z]:\//i.test(root) || root.startsWith("//");
+	const comparablePath = windows ? path.toLowerCase() : path;
+	const comparableRoot = windows ? root.toLowerCase() : root;
+	if (root && comparablePath === comparableRoot) return "~";
+	if (root && comparablePath.startsWith(`${comparableRoot}/`)) return oneLine(`~/${path.slice(root.length + 1)}`);
+	return oneLine(original);
 }
 
 export function title(name) {
@@ -36,20 +50,17 @@ export function callSummary(name, input) {
 	const args = parseArgs(input);
 	const path = args.path ?? args.file_path;
 	switch (name) {
-		case "read": {
-			const range = [args.offset != null ? `offset=${args.offset}` : "", args.limit != null ? `limit=${args.limit}` : ""].filter(Boolean);
-			return oneLine(`${path ?? ""}${range.length ? ` (${range.join(", ")})` : ""}`);
-		}
-		case "ls": return oneLine(path ?? ".");
-		case "grep": return oneLine(`"${args.pattern ?? ""}" in ${path ?? "."}`);
-		case "find": return oneLine(`${args.pattern ?? ""} in ${path ?? "."}`);
+		case "read": return displayPath(path);
+		case "ls": return displayPath(path ?? ".");
+		case "grep": return oneLine(`"${args.pattern ?? ""}" in ${displayPath(path ?? ".")}`);
+		case "find": return oneLine(`${args.pattern ?? ""} in ${displayPath(path ?? ".")}`);
 		case "edit":
-		case "write": return oneLine(path);
+		case "write": return displayPath(path);
 		case "bash":
 		case "powershell": return oneLine(args.command);
 		case "tool_search": return oneLine(args.query);
 		case "codemode": return oneLine(String(args.code ?? "").split("\n").find((line) => line.trim() && !line.trim().startsWith("//")));
-		default: return oneLine(path ?? args.query ?? args.command ?? args.preview ?? JSON.stringify(args));
+		default: return path != null ? displayPath(path) : oneLine(args.query ?? args.command ?? args.preview ?? JSON.stringify(args));
 	}
 }
 

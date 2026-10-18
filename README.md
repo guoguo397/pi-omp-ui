@@ -46,6 +46,7 @@ pi update git:github.com/guoguo397/pi-omp-ui
 - **Fullscreen**：点击工具卡或分组标题展开 / 折叠。
 - **Regular**：使用 Pi 原生工具展开快捷键，默认 **Ctrl+O**；Fullscreen 也支持。
 - 工具组和 Codemode 折叠时最多显示最近 8 项；Edit 默认预览 20 行，展开查看完整内容。
+- 工具摘要将用户主目录（如 `C:/Users/hy/`）缩写为 `~/`，其他目录路径保留；Read 摘要不显示 `offset` / `limit`。仅精简展示，实际参数及展开后的完整输入不变。
 - 未知工具保留原渲染器。检测到 `pi-cc-extensions` 接管工具渲染时自动让位，可用 `/omp-tools status` 查看。
 
 ### 统计与状态栏
